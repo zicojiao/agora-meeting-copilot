@@ -6,7 +6,7 @@ An Agora meeting room with two deliberately separate AI capabilities:
   first browser joins RTC. Final speaker-attributed turns feed shared live notes,
   final notes, and downloadable Markdown artifacts.
 - **Optional AI teammate:** Copilot joins as independent RTC UID `900001`,
-  answers subscribed room audio through GPT Live Alpha, and can be removed like
+  answers subscribed room audio through GPT Live, and can be removed like
   another participant. Its final voice turns join the same shared transcript;
   there is no separate text-chat or approval workflow.
 - **Collaborative Kanban:** the meeting includes a compact board preview and a
@@ -19,7 +19,7 @@ An Agora meeting room with two deliberately separate AI capabilities:
   and SSE keeps every participant synchronized. Voice deletion is intentionally
   unavailable; manual deletion is limited to the host or card creator.
 
-The voice runtime uses the limited-access OpenAI GPT Live Alpha provider through
+The voice runtime uses the limited-access OpenAI GPT Live provider through
 Agora's Conversational AI preview. A signed orchestrator WebSocket gateway keeps
 the OpenAI credential server-side, injects Responses delegation, and completes
 client-actionable function calls without putting the board mutation on the RTM
@@ -35,7 +35,7 @@ maintained separately from the codebase.
 - Agora RTC and RTM Web SDKs
 - Agora Real-Time Speech to Text v7 with Protobuf data-stream captions
 - Agora Conversational AI via `agora-agents`
-- OpenAI GPT Live Alpha audio plus Responses API structured meeting notes
+- OpenAI GPT Live audio plus Responses API structured meeting notes
 - GPT Live Responses delegation plus client-actionable Kanban functions
 - Fastify orchestrator and PostgreSQL on Railway
 - Signed host/guest capabilities and 24-hour text-only meeting artifacts
@@ -74,7 +74,7 @@ Browser microphones -> Agora RTC room
                          |                            `-> final turns -> Railway/Postgres
                          |                                             |-> Live Notes
                          |                                             `-> Final Notes + Markdown
-                         `-> Copilot UID 900001 -> GPT Live Alpha voice participant
+                         `-> Copilot UID 900001 -> GPT Live voice participant
                                                     |-> final voice turns -> shared transcript
                                                     `-> Responses delegation -> board function call
                                                                                |-> shared Kanban service
@@ -82,8 +82,8 @@ Browser microphones -> Agora RTC room
 Browser board workspace -> manual card operation --------------------------------^ -> PostgreSQL + room SSE
 ```
 
-GPT Live Alpha is limited to approved, low-volume internal testing. The gateway
-uses the alpha Live API contract and must be updated if that contract changes.
+GPT Live is limited to approved, low-volume internal testing. The gateway
+uses the current Live API contract and must be updated if that contract changes.
 RTM remains enabled for UI/transcript events, but RTM user turns cannot mutate
 the board.
 

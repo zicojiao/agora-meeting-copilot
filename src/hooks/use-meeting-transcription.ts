@@ -27,6 +27,23 @@ export function shouldUseAgoraSttSegment(speakerUid: string) {
   return speakerUid !== copilotRtcUid;
 }
 
+export function shouldStartMeetingTranscription({
+  captionsOn,
+  connectionState,
+  hasRtcClient,
+  alreadyStarted,
+  transcriptionStatus
+}: {
+  captionsOn: boolean;
+  connectionState: string;
+  hasRtcClient: boolean;
+  alreadyStarted: boolean;
+  transcriptionStatus?: TranscriptionSession["status"];
+}) {
+  const transcriptionRunning = transcriptionStatus === "starting" || transcriptionStatus === "active";
+  return captionsOn && hasRtcClient && connectionState === "connected" && !alreadyStarted && !transcriptionRunning;
+}
+
 export function useMeetingTranscription({
   roomId,
   roomCreatedAt,
@@ -46,7 +63,7 @@ export function useMeetingTranscription({
 }) {
   const [activeSession, setActiveSession] = useState<TranscriptionSession | null>(transcription ?? null);
   const [partials, setPartials] = useState<Record<string, PartialTranscriptSegment>>({});
-  const [captionsOn, setCaptionsOn] = useState(true);
+  const [captionsOn, setCaptionsOn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
   const submittedRef = useRef(new Set<string>());
@@ -71,7 +88,13 @@ export function useMeetingTranscription({
   }, [transcription]);
 
   useEffect(() => {
-    if (!rtcClient || connectionState !== "connected" || startedRef.current) return;
+    if (!shouldStartMeetingTranscription({
+      captionsOn,
+      connectionState,
+      hasRtcClient: Boolean(rtcClient),
+      alreadyStarted: startedRef.current,
+      transcriptionStatus: activeSession?.status
+    })) return;
     startedRef.current = true;
     void startMeetingTranscription(roomId, session.capability)
       .then((result) => setActiveSession(result.transcription))
@@ -79,10 +102,10 @@ export function useMeetingTranscription({
         startedRef.current = false;
         setError(caught instanceof Error ? caught.message : "Meeting transcription could not start.");
       });
-  }, [connectionState, roomId, rtcClient, session.capability]);
+  }, [activeSession?.status, captionsOn, connectionState, roomId, rtcClient, session.capability]);
 
   useEffect(() => {
-    if (!rtcClient || !activeSession) return;
+    if (!captionsOn || !rtcClient || !activeSession) return;
     const onStreamMessage = (uid: string | number, data: Uint8Array) => {
       if (String(uid) !== activeSession.publisherUid) return;
       let decoded;
@@ -136,13 +159,18 @@ export function useMeetingTranscription({
     };
     rtcClient.on("stream-message", onStreamMessage);
     return () => { rtcClient.off("stream-message", onStreamMessage); };
-  }, [activeSession, roomCreatedAt, roomId, rtcClient, session.capability]);
+  }, [activeSession, captionsOn, roomCreatedAt, roomId, rtcClient, session.capability]);
+
+  const setCaptionsEnabled = (value: boolean) => {
+    setCaptionsOn(value);
+    if (!value) setPartials({});
+  };
 
   return {
     transcription: activeSession,
-    partialSegments: useMemo(() => Object.values(partials).sort((a, b) => a.startMs - b.startMs), [partials]),
+    partialSegments: useMemo(() => captionsOn ? Object.values(partials).sort((a, b) => a.startMs - b.startMs) : [], [captionsOn, partials]),
     captionsOn,
-    setCaptionsOn,
+    setCaptionsOn: setCaptionsEnabled,
     error,
     clearError: () => setError(null)
   };

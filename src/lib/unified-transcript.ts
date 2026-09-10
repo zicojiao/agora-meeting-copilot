@@ -14,6 +14,10 @@ export type UnifiedTranscriptEntry = {
   createdAt: string;
 };
 
+export function visibleTranscriptEntries(entries: UnifiedTranscriptEntry[], captionsOn: boolean) {
+  return captionsOn ? entries : entries.filter((entry) => entry.source === "copilot");
+}
+
 export function buildUnifiedTranscriptEntries(
   segments: MeetingTranscriptSegment[],
   copilotTurns: CopilotTurn[],

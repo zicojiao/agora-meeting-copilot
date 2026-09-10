@@ -12,4 +12,13 @@ describe("normalizeCumulativeTranscript", () => {
     expect(normalizeCumulativeTranscript("I’m Copilot. I’m Copilot.")).toBe("I’m Copilot.");
     expect(normalizeCumulativeTranscript("你好。你好。")).toBe("你好。");
   });
+
+  it("collapses a long multi-sentence chain of GPT Live snapshots", () => {
+    const final = "First, align on the goal and success metrics, so everyone's clear on what winning looks like. Second, lock down messaging and target audience so that sales and marketing speak with one voice. And third, confirm readiness and owners across functions, like launch timeline, channels, support coverage, and escalation paths.";
+    const words = final.split(" ");
+    const cumulative = `${words.map((_, index) => words.slice(0, index + 1).join(" ")).join(" ")} ${final}`;
+
+    expect(cumulative.length).toBeGreaterThan(4_000);
+    expect(normalizeCumulativeTranscript(cumulative)).toBe(final);
+  });
 });

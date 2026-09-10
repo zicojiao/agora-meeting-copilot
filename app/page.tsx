@@ -14,8 +14,8 @@ import { isValidRoomCode, normalizeRoomCode } from "@/lib/room-code";
 const emptyJoinConfig: JoinConfig = {
   roomId: "",
   displayName: "",
-  micOn: true,
-  cameraOn: true
+  micOn: false,
+  cameraOn: false
 };
 
 export default function Page() {

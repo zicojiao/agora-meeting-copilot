@@ -231,7 +231,7 @@ export function MeetingRoom({ config, onEnded, onLeave }: { config: JoinConfig; 
         activePanel === "board"
           ? "panel-open grid-cols-[minmax(0,1fr)_640px] max-[1100px]:grid-cols-1"
           : activePanel
-            ? "panel-open grid-cols-[minmax(0,1fr)_360px] max-[1100px]:grid-cols-1"
+            ? "panel-open grid-cols-[minmax(0,1fr)_480px] max-[1100px]:grid-cols-1"
             : "grid-cols-1"
       )}>
         <section className="meeting-canvas relative min-h-0 min-w-0 p-2.5 max-sm:p-1.5" aria-label="Meeting participants">

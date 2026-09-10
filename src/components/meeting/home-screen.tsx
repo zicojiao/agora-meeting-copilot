@@ -2,7 +2,6 @@
 
 import { ArrowRight, Bot, Plus, Radio } from "lucide-react";
 import { FormEvent, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
 import { buildRoomCode, isValidRoomCode, normalizeRoomCodeSuffix, roomCodeExample, roomCodePrefix } from "@/lib/room-code";
@@ -58,13 +57,8 @@ export function HomeScreen({
             <span className="block">in every meeting.</span>
           </h1>
           <p className="mt-6 max-w-[570px] text-[17px] leading-relaxed text-meeting-soft max-[820px]:mx-auto max-sm:mt-4 max-sm:text-[15px] [@media(max-height:560px)_and_(orientation:landscape)]:mt-3 [@media(max-height:560px)_and_(orientation:landscape)]:text-sm">
-            Real-time collaboration powered by Agora and OpenAI GPT Live Alpha.
+            Real-time collaboration powered by Agora and OpenAI GPT Live.
           </p>
-          <div className="mt-6 flex flex-wrap gap-2 max-[820px]:justify-center [@media(max-height:560px)_and_(orientation:landscape)]:mt-4 [@media(max-height:560px)_and_(orientation:landscape)]:justify-start">
-            <Badge>Agora RTC</Badge>
-            <Badge>Conversational AI</Badge>
-            <Badge>GPT Live Alpha</Badge>
-          </div>
         </section>
 
         <Panel className="pointer-events-auto w-full animate-home-enter bg-panel/95 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.42)] backdrop-blur-md [animation-delay:180ms] max-[820px]:max-w-[470px] max-sm:p-4 [@media(max-height:560px)_and_(orientation:landscape)]:p-4" aria-label="Start or join a meeting">

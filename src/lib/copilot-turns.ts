@@ -10,7 +10,11 @@ import {
 
 export type CopilotTurnInput = Omit<CopilotTurn, "id" | "roomId" | "createdAt"> & { createdAt?: string };
 
-const maxSnapshotScanLength = 4000;
+// A normal multi-sentence GPT Live answer can exceed 4,000 characters because
+// the transcript helper concatenates every growing snapshot into one string.
+// Keep a bounded guard, but size it for the server's 8,000-character turn
+// limit plus headroom so valid long answers are normalized before submission.
+const maxSnapshotScanLength = 16000;
 
 export function parseCopilotTurn(payload: Record<string, unknown>, names: Record<string, string>): CopilotTurnInput | null {
   if (payload.object === "user.transcription" && payload.final === true) {

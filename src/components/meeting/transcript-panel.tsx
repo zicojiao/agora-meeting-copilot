@@ -1,10 +1,10 @@
 "use client";
 
 import { Captions, Check, Waves } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { TranscriptionSession } from "@/lib/meeting-api";
-import type { UnifiedTranscriptEntry } from "@/lib/unified-transcript";
+import { visibleTranscriptEntries, type UnifiedTranscriptEntry } from "@/lib/unified-transcript";
 import { cn } from "@/lib/utils";
 
 export function TranscriptPanel({
@@ -22,6 +22,7 @@ export function TranscriptPanel({
 }) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const [following, setFollowing] = useState(true);
+  const visibleEntries = useMemo(() => visibleTranscriptEntries(entries, captionsOn), [captionsOn, entries]);
 
   useLayoutEffect(() => {
     if (!following) return;
@@ -30,7 +31,7 @@ export function TranscriptPanel({
       if (element) element.scrollTop = element.scrollHeight;
     });
     return () => cancelAnimationFrame(frame);
-  }, [entries, following]);
+  }, [following, visibleEntries]);
 
   useEffect(() => {
     if (!selectedSegmentId) return;
@@ -45,8 +46,8 @@ export function TranscriptPanel({
       <div className="border-b border-line px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <span className="inline-flex min-w-0 items-center gap-2 font-mono text-[10px] uppercase text-meeting-soft">
-            <i className={cn("size-1.5 shrink-0 rounded-full", status === "active" ? "bg-presence" : status === "error" ? "bg-danger" : "bg-warning")} />
-            <span className="truncate">{transcriptionStatusLabel(status)}</span>
+            <i className={cn("size-1.5 shrink-0 rounded-full", !captionsOn ? "bg-meeting-faint" : status === "active" ? "bg-presence" : status === "error" ? "bg-danger" : "bg-warning")} />
+            <span className="truncate">{captionsOn ? transcriptionStatusLabel(status) : "Transcription off"}</span>
           </span>
           <button
             aria-checked={captionsOn}
@@ -59,8 +60,8 @@ export function TranscriptPanel({
           </button>
         </div>
         <div className="mt-2 flex items-center justify-between text-[10px] text-meeting-faint">
-          <span>{transcription?.languages.join(" + ") || "Chinese + English"}</span>
-          <span>{entries.length} final</span>
+          <span>{transcription?.languages.join(" + ") || "en-US"}</span>
+          <span>{visibleEntries.length} final</span>
         </div>
       </div>
 
@@ -72,15 +73,15 @@ export function TranscriptPanel({
         }}
         ref={listRef}
       >
-        {!entries.length ? (
+        {!visibleEntries.length ? (
           <div className="flex min-h-full flex-col items-center justify-center px-8 text-center text-meeting-muted">
             <Waves className="mb-3 text-agora" size={22} />
-            <strong className="text-sm text-meeting-soft">Waiting for speech</strong>
-            <p className="mt-1.5 text-xs leading-relaxed">Final transcript turns will appear here for everyone in the meeting.</p>
+            <strong className="text-sm text-meeting-soft">{captionsOn ? "Waiting for speech" : "Captions are off"}</strong>
+            <p className="mt-1.5 text-xs leading-relaxed">{captionsOn ? "Final transcript turns will appear here for everyone in the meeting." : "Turn captions on to transcribe meeting participants. Copilot responses will still appear here."}</p>
           </div>
         ) : (
           <div aria-live="polite">
-            {entries.map((entry) => (
+            {visibleEntries.map((entry) => (
               <article
                 className={cn("border-b border-line px-4 py-3 transition-colors", selectedSegmentId === entry.id && "bg-agora/10")}
                 id={entry.source === "meeting" ? `segment-${entry.id}` : `copilot-turn-${entry.id}`}

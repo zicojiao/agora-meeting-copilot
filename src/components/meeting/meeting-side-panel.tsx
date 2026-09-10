@@ -26,7 +26,7 @@ export function MeetingSidePanel({ activePanel, children, onClose, onSelect, wid
       aria-label={`${active.label} panel`}
       className={cn(
         "meeting-side-panel flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-line bg-panel max-[1100px]:absolute max-[1100px]:bottom-2.5 max-[1100px]:right-2.5 max-[1100px]:top-2.5 max-[1100px]:z-30 max-[1100px]:rounded-[4px] max-[1100px]:border max-[1100px]:shadow-2xl max-sm:inset-0 max-sm:w-full max-sm:rounded-none max-sm:border-0",
-        wide ? "max-[1100px]:w-[min(640px,calc(100%-20px))]" : "max-[1100px]:w-[360px]"
+        wide ? "max-[1100px]:w-[min(640px,calc(100%-20px))]" : "max-[1100px]:w-[min(480px,calc(100%-20px))]"
       )}
     >
       <header className="flex min-h-14 items-center gap-2 border-b border-line px-2">
@@ -44,7 +44,7 @@ export function MeetingSidePanel({ activePanel, children, onClose, onSelect, wid
               type="button"
             >
               <span className={cn("shrink-0", tab.id === activePanel && "text-agora")}>{tab.icon}</span>
-              <span className="truncate whitespace-nowrap max-[370px]:hidden">{tab.label}</span>
+              <span className="whitespace-nowrap max-[370px]:hidden">{tab.label}</span>
               {tab.id === activePanel ? <i className="absolute inset-x-2 -bottom-1 h-0.5 rounded-full bg-agora" aria-hidden="true" /> : null}
             </button>
           ))}
