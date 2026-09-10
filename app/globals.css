@@ -1,0 +1,101 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-room: #0e1113;
+  --color-room-deep: #080b0d;
+  --color-panel: #171b1e;
+  --color-panel-raised: #22282c;
+  --color-panel-hover: #2a3136;
+  --color-tile: #30373b;
+  --color-tile-deep: #20262a;
+  --color-meeting: #f2f4f5;
+  --color-meeting-soft: #c9ced1;
+  --color-meeting-muted: #9aa3a8;
+  --color-meeting-faint: #69747b;
+  --color-line: rgb(255 255 255 / 0.12);
+  --color-line-strong: rgb(255 255 255 / 0.2);
+  --color-agora: #00c2ff;
+  --color-presence: #38d39f;
+  --color-danger: #ef5b5b;
+  --color-warning: #f2b84b;
+  --color-copilot: #a995ff;
+  --font-sans: var(--font-manrope);
+  --font-mono: var(--font-ibm-plex-mono);
+  --animate-cell-ripple: cell-ripple var(--duration, 200ms) ease-out none 1 var(--delay, 0ms);
+  --animate-voice-level: voice-level 900ms ease-in-out infinite alternate;
+  --animate-home-enter: home-enter 560ms ease-out both;
+  --animate-verb-cycle: verb-cycle 8s ease-in-out infinite;
+  --animate-reaction-in: reaction-in 220ms ease-out both;
+
+  @keyframes cell-ripple {
+    0% { opacity: 0.4; }
+    50% { opacity: 0.8; }
+    100% { opacity: 0.4; }
+  }
+
+  @keyframes voice-level {
+    from { height: 8px; }
+    to { height: 30px; }
+  }
+
+  @keyframes home-enter {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes verb-cycle {
+    0% { opacity: 0; transform: translateY(42%); filter: blur(7px); }
+    4%, 21% { opacity: 1; transform: translateY(0); filter: blur(0); }
+    25%, 100% { opacity: 0; transform: translateY(-42%); filter: blur(7px); }
+  }
+
+  @keyframes reaction-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+}
+
+@layer base {
+  html,
+  body {
+    min-height: 100%;
+  }
+
+  body {
+    min-width: 320px;
+    background: var(--color-room);
+    color: var(--color-meeting);
+    font-family: var(--font-manrope), "Segoe UI", sans-serif;
+    letter-spacing: 0;
+  }
+
+  button,
+  input {
+    font: inherit;
+    letter-spacing: 0;
+  }
+
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 600px) {
+  [data-sonner-toaster][data-x-position="center"] {
+    transition: none !important;
+  }
+}
