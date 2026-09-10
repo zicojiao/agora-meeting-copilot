@@ -7,16 +7,21 @@ describe("meetingInstructions", () => {
   it("makes brevity and direct meeting speech explicit", () => {
     const instructions = meetingInstructions("focused");
 
-    expect(instructions).toContain("an active teammate in this live meeting");
+    expect(instructions.startsWith("# Highest-Priority Participation Contract")).toBe(true);
+    expect(instructions).toContain("a silent-by-default AI teammate in this live meeting");
+    expect(instructions).not.toContain("an active teammate in this live meeting");
     expect(instructions).toContain("You have joined this meeting room");
-    expect(instructions).toContain("Your colleagues may ask about things discussed in the meeting");
+    expect(instructions).toContain("When they directly address you by name");
     expect(instructions).toContain("Use the current conversation and the supplied meeting context");
     expect(instructions).toContain("ANSWER FIRST");
     expect(instructions).toContain("DEFAULT TO ONE SHORT SPOKEN SENTENCE");
     expect(instructions).toContain("usually 5–20 words");
     expect(instructions).toContain("stay under 35 words total");
     expect(instructions).toContain("NEVER produce long explanations, essays, scripts, or meeting summaries");
-    expect(instructions).toContain("then yield the floor");
+    expect(instructions).toContain("Every response requires a fresh direct address");
+    expect(instructions).toContain("A follow-up still requires a fresh \"Copilot\" address");
+    expect(instructions).toContain('User: "Copilot, what\'s our next step?"');
+    expect(instructions).not.toContain('User: "What\'s our next step?"');
     expect(instructions).toContain("shared Kanban board");
     expect(instructions).toContain("call the matching board function");
     expect(instructions).toContain("Wait for its result");
@@ -26,14 +31,14 @@ describe("meetingInstructions", () => {
   it("keeps the first release strictly English", () => {
     const instructions = meetingInstructions("standby");
 
-    expect(instructions.startsWith("# Highest-Priority Output Language Contract")).toBe(true);
+    expect(instructions).toContain("# Output Language Contract");
     expect(instructions).toContain("exactly one assistant output language: English");
     expect(instructions).toContain("Every spoken response and every assistant transcript MUST use English");
     expect(instructions).toContain("This rule overrides language detection");
-    expect(instructions).toContain("do not guess a foreign language");
-    expect(instructions).toContain('Say exactly: "Sorry, could you repeat that?"');
+    expect(instructions).toContain("Only after a valid direct address");
+    expect(instructions).toContain('say exactly: "Sorry, could you repeat that?"');
     expect(instructions).toContain('say exactly "I don\'t know from this meeting." in English');
-    expect(instructions).toContain("# Final Check Before Every Response\nSpeak only English");
+    expect(instructions).toContain("# Final Check Before Every Response\nFirst verify that the current utterance freshly and directly addressed Copilot");
     expect(instructions).toContain("Never answer a direct question with only an acknowledgement or filler");
     expect(instructions).not.toContain("Match the language of the latest speaker");
     expect(instructions).not.toContain("in the speaker's language");
@@ -52,7 +57,9 @@ describe("meetingInstructions", () => {
   it("keeps standby silent and appends recent context", () => {
     const instructions = meetingInstructions("standby", "The team will ship Friday.");
 
-    expect(instructions).toContain("DO NOT speak unless someone clearly says Copilot");
+    expect(instructions).toContain("do not speak unless the current utterance begins by directly addressing Copilot");
+    expect(instructions).toContain("Zico: \"I think the biggest risk is demo reliability.\"");
+    expect(instructions).toContain("Assistant: <silence>");
     expect(instructions).toContain("# Recent Meeting Context\nThe team will ship Friday.");
   });
 });
@@ -87,5 +94,6 @@ describe("GPT Live board delegation", () => {
     ]);
     expect(delegation.responses.tools.map((tool) => tool.name)).not.toContain("delete_board_card");
     expect(delegation.responses.instructions).toContain("Never claim that the board changed until the function result reports ok=true");
+    expect(delegation.responses.instructions).toContain("freshly and directly addresses Copilot by name");
   });
 });

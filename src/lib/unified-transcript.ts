@@ -14,6 +14,17 @@ export type UnifiedTranscriptEntry = {
   createdAt: string;
 };
 
+export function transcriptEntryKey(entry: Pick<UnifiedTranscriptEntry, "id" | "source">) {
+  return `${entry.source}:${entry.id}`;
+}
+
+export function withoutLocallyClearedTranscriptEntries(
+  entries: UnifiedTranscriptEntry[],
+  clearedEntryKeys: ReadonlySet<string>
+) {
+  return entries.filter((entry) => !clearedEntryKeys.has(transcriptEntryKey(entry)));
+}
+
 export function visibleTranscriptEntries(entries: UnifiedTranscriptEntry[], captionsOn: boolean) {
   return captionsOn ? entries : entries.filter((entry) => entry.source === "copilot");
 }

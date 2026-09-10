@@ -20,9 +20,12 @@ describe("room security", () => {
 });
 
 describe("speaking policy", () => {
-  it("opens, extends, and closes the focused conversation window", () => {
+  it("requires a fresh direct wake phrase for every turn", () => {
     expect(decideConversationMode("Copilot, explain that", "standby")).toMatchObject({ nextMode: "focused", wake: true, extend: true });
-    expect(decideConversationMode("What about the deadline?", "focused")).toMatchObject({ nextMode: "focused", extend: true });
+    expect(decideConversationMode("Hey Copilot, explain that", "standby")).toMatchObject({ nextMode: "focused", wake: true, extend: true });
+    expect(decideConversationMode("Um, Purvis, what should we do next?", "standby")).toMatchObject({ nextMode: "focused", wake: true, extend: true });
+    expect(decideConversationMode("What about the deadline?", "focused")).toMatchObject({ nextMode: "standby", wake: false, extend: false });
+    expect(decideConversationMode("The Copilot launch is next week", "standby")).toMatchObject({ nextMode: "standby", wake: false, extend: false });
     expect(decideConversationMode("Thanks Copilot", "focused")).toMatchObject({ nextMode: "standby", stop: true });
     expect(decideConversationMode("We should ship Friday", "standby")).toMatchObject({ nextMode: "standby", wake: false });
   });

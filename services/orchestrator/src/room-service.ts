@@ -308,14 +308,17 @@ export class RoomService {
     await this.events.publish(roomId, "copilot.turn.final", { turn });
 
     if (turn.role === "user") {
-      if (room.agentStatus === "speaking") await this.runtime.interrupt(roomId).catch(() => undefined);
       const decision = decideConversationMode(turn.text, room.conversationMode);
-      if (decision.stop) await this.closeFocus(room);
-      else if (decision.extend && room.agentId) await this.openFocus(room);
+      if (decision.wake && room.agentId) {
+        if (room.agentStatus === "speaking") await this.runtime.interrupt(roomId).catch(() => undefined);
+        await this.openFocus(room);
+      } else if (room.agentId) {
+        await this.runtime.interrupt(roomId).catch(() => undefined);
+        await this.closeFocus(room);
+      }
     } else {
       await this.notes.handleTranscriptChanged(roomId);
-      room.agentStatus = room.conversationMode;
-      await this.saveRoom(room, "agent.status", { status: room.agentStatus });
+      if (room.agentId) await this.closeFocus(room);
     }
     return { accepted: true, turn };
   }
@@ -351,6 +354,7 @@ export class RoomService {
     room.focusUntil = undefined;
     if (room.agentId) await this.runtime.setConversationMode(room.id, "standby").catch(() => undefined);
     await this.saveRoom(room, "agent.focus", { mode: "standby" });
+    await this.events.publish(room.id, "agent.status", { status: room.agentStatus });
   }
 
   private clearFocusTimer(roomId: string) {

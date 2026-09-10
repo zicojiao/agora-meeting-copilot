@@ -1,6 +1,6 @@
 "use client";
 
-import { Captions, Check, Waves } from "lucide-react";
+import { Captions, Check, Eraser, Waves } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { TranscriptionSession } from "@/lib/meeting-api";
@@ -10,12 +10,14 @@ import { cn } from "@/lib/utils";
 export function TranscriptPanel({
   captionsOn,
   entries,
+  onClear,
   selectedSegmentId,
   transcription,
   onCaptionsChange
 }: {
   captionsOn: boolean;
   entries: UnifiedTranscriptEntry[];
+  onClear?: () => void;
   selectedSegmentId?: string;
   transcription: TranscriptionSession | null | undefined;
   onCaptionsChange: (value: boolean) => void;
@@ -49,15 +51,29 @@ export function TranscriptPanel({
             <i className={cn("size-1.5 shrink-0 rounded-full", !captionsOn ? "bg-meeting-faint" : status === "active" ? "bg-presence" : status === "error" ? "bg-danger" : "bg-warning")} />
             <span className="truncate">{captionsOn ? transcriptionStatusLabel(status) : "Transcription off"}</span>
           </span>
-          <button
-            aria-checked={captionsOn}
-            className={cn("inline-flex h-8 items-center gap-2 rounded-[3px] border px-2.5 text-[10px] font-semibold", captionsOn ? "border-agora/50 bg-agora/10 text-agora" : "border-line bg-panel-raised text-meeting-muted")}
-            onClick={() => onCaptionsChange(!captionsOn)}
-            role="switch"
-            type="button"
-          >
-            <Captions size={14} />Captions {captionsOn ? "on" : "off"}
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {onClear ? (
+              <Button
+                className="h-8 gap-1.5 border-line px-2.5 text-[10px] text-meeting-muted"
+                disabled={!visibleEntries.length}
+                onClick={onClear}
+                size="sm"
+                title={visibleEntries.length ? "Clear transcript from this page" : "No transcript to clear"}
+                variant="ghost"
+              >
+                <Eraser size={13} />Clear
+              </Button>
+            ) : null}
+            <button
+              aria-checked={captionsOn}
+              className={cn("inline-flex h-8 items-center gap-2 rounded-[3px] border px-2.5 text-[10px] font-semibold", captionsOn ? "border-agora/50 bg-agora/10 text-agora" : "border-line bg-panel-raised text-meeting-muted")}
+              onClick={() => onCaptionsChange(!captionsOn)}
+              role="switch"
+              type="button"
+            >
+              <Captions size={14} />Captions {captionsOn ? "on" : "off"}
+            </button>
+          </div>
         </div>
         <div className="mt-2 flex items-center justify-between text-[10px] text-meeting-faint">
           <span>{transcription?.languages.join(" + ") || "en-US"}</span>

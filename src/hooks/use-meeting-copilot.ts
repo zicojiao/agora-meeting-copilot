@@ -29,6 +29,7 @@ import {
 } from "@/lib/meeting-api";
 import { mergeVisibleMeetingNotes } from "@/lib/meeting-notes";
 import { copilotName } from "@/lib/product";
+import { shouldSilenceCopilotTurnSubmissionError } from "@/lib/copilot-errors";
 import {
   copilotTurnFingerprint,
   copilotTurnKey,
@@ -86,6 +87,9 @@ export function useMeetingCopilot({
     submittedRef.current.set(key, fingerprint);
     void submitCopilotTurn(roomId, session.capability, parsed).catch((caught) => {
       if (submittedRef.current.get(key) === fingerprint) submittedRef.current.delete(key);
+      // Agora may deliver another participant's transcript to every client. The
+      // server must reject that submission, but it is expected and non-actionable.
+      if (shouldSilenceCopilotTurnSubmissionError(caught)) return;
       setError(message(caught));
     });
   }, [roomId, session.capability]);

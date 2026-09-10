@@ -13,7 +13,7 @@ const publicFiles = new Set([
 
 export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
-  if (pathname.startsWith("/_next/") || pathname.startsWith("/demo/") || publicFiles.has(pathname) || pathname === "/api/access") {
+  if (pathname.startsWith("/_next/") || publicFiles.has(pathname) || pathname === "/api/access") {
     return NextResponse.next();
   }
 

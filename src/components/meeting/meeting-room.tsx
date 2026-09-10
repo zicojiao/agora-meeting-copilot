@@ -15,7 +15,7 @@ import { endMeetingForEveryone, leaveMeeting } from "@/lib/meeting-api";
 import { meetingPath } from "@/lib/meeting-routes";
 import { resolveParticipantProfile } from "@/lib/participant-profile";
 import { copilotName, copilotWakeWord } from "@/lib/product";
-import { buildUnifiedTranscriptEntries, type UnifiedTranscriptEntry } from "@/lib/unified-transcript";
+import { buildUnifiedTranscriptEntries, transcriptEntryKey, type UnifiedTranscriptEntry, withoutLocallyClearedTranscriptEntries } from "@/lib/unified-transcript";
 import { cn } from "@/lib/utils";
 import { Brand } from "./brand";
 import { BoardPanel } from "./board-panel";
@@ -58,6 +58,7 @@ export function MeetingRoom({ config, onEnded, onLeave }: { config: JoinConfig; 
   const [removingCopilot, setRemovingCopilot] = useState(false);
   const [roomLink, setRoomLink] = useState("");
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>();
+  const [clearedTranscriptEntryKeys, setClearedTranscriptEntryKeys] = useState<ReadonlySet<string>>(() => new Set());
   const endedRef = useRef(false);
   const elapsed = useMeetingTimer();
   const isHost = session.role === "host";
@@ -78,6 +79,10 @@ export function MeetingRoom({ config, onEnded, onLeave }: { config: JoinConfig; 
     copilot.state?.copilotTurns ?? [],
     copilot.state?.room.createdAt
   ), [copilot.state?.copilotTurns, copilot.state?.room.createdAt, copilot.state?.transcriptSegments]);
+  const localTranscriptEntries = useMemo(
+    () => withoutLocallyClearedTranscriptEntries(transcriptEntries, clearedTranscriptEntryKeys),
+    [clearedTranscriptEntryKeys, transcriptEntries]
+  );
   const liveCaption = useLiveCaption(transcriptEntries, transcription.partialSegments);
   const social = useMeetingSocial({
     channel: session.channel,
@@ -291,7 +296,11 @@ export function MeetingRoom({ config, onEnded, onLeave }: { config: JoinConfig; 
             {activePanel === "transcript" ? (
               <TranscriptPanel
                 captionsOn={transcription.captionsOn}
-                entries={transcriptEntries}
+                entries={localTranscriptEntries}
+                onClear={() => {
+                  setClearedTranscriptEntryKeys(new Set(transcriptEntries.map(transcriptEntryKey)));
+                  setSelectedSegmentId(undefined);
+                }}
                 onCaptionsChange={transcription.setCaptionsOn}
                 selectedSegmentId={selectedSegmentId}
                 transcription={copilot.state?.transcription ?? transcription.transcription}

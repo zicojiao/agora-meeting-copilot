@@ -5,10 +5,11 @@ import { decodeAgoraSttMessage, encodeAgoraSttMessage } from "../src/lib/agora-s
 import { mergeVisibleMeetingNotes } from "../src/lib/meeting-notes";
 import { meetingBoardPath, meetingPath, meetingSummaryPath } from "../src/lib/meeting-routes";
 import { buildRoomCode, isValidRoomCode, normalizeRoomCodeSuffix } from "../src/lib/room-code";
-import { buildUnifiedTranscriptEntries, visibleTranscriptEntries } from "../src/lib/unified-transcript";
+import { buildUnifiedTranscriptEntries, transcriptEntryKey, visibleTranscriptEntries, withoutLocallyClearedTranscriptEntries } from "../src/lib/unified-transcript";
 import { normalizeCumulativeTranscript, parseCopilotTurn, parseToolkitCopilotTurn } from "../src/lib/copilot-turns";
 import { removeLiveTranscript, shouldStartMeetingTranscription, shouldUseAgoraSttSegment, upsertLiveTranscript, type PartialTranscriptSegment } from "../src/hooks/use-meeting-transcription";
 import { MessageType, TurnStatus } from "agora-agent-client-toolkit";
+import { shouldSilenceCopilotTurnSubmissionError } from "../src/lib/copilot-errors";
 
 const viewports = [
   { name: "desktop", width: 1440, height: 1000 },
@@ -51,8 +52,6 @@ test("private preview gate protects direct routes and uses a session-only cookie
 
   const staticAsset = await context.request.get("/agora-logo-mark.svg");
   expect(staticAsset.status()).toBe(200);
-  const demoAsset = await context.request.get("/demo/participants/daniel-carter.jpg");
-  expect(demoAsset.status()).toBe(200);
 });
 
 test("Agora STT protobuf keeps final identity and timing fields", () => {
@@ -86,6 +85,12 @@ test("live transcript revisions keep finalizing sentences stable", () => {
 test("Agora STT owns human text but never retranscribes Copilot audio", () => {
   expect(shouldUseAgoraSttSegment("101")).toBe(true);
   expect(shouldUseAgoraSttSegment("900001")).toBe(false);
+});
+
+test("expected cross-participant voice turn rejections stay silent", () => {
+  expect(shouldSilenceCopilotTurnSubmissionError(new Error("A participant can submit only their own voice turn"))).toBe(true);
+  expect(shouldSilenceCopilotTurnSubmissionError(new Error("Copilot is unavailable"))).toBe(false);
+  expect(shouldSilenceCopilotTurnSubmissionError("A participant can submit only their own voice turn")).toBe(false);
 });
 
 test("Agora STT starts lazily only after captions are enabled", () => {
@@ -152,6 +157,18 @@ test("direct Copilot turns join the meeting transcript and replace duplicate STT
   expect(entries.at(-1)).toMatchObject({ source: "copilot", speakerName: "Copilot", startMs: 3_000 });
   expect(visibleTranscriptEntries(entries, false).map((entry) => entry.text)).toEqual(["Ship the demo next."]);
   expect(visibleTranscriptEntries(entries, true)).toEqual(entries);
+});
+
+test("local transcript clearing hides existing entries but keeps later entries", () => {
+  const entries = [
+    { id: "human-1", source: "meeting" as const, speakerUid: "101", speakerName: "Zico", text: "First point.", startMs: 1_000, createdAt: "2026-09-09T00:00:01.000Z" },
+    { id: "copilot-1", source: "copilot" as const, speakerUid: "900001", speakerName: "Copilot", text: "First response.", startMs: 2_000, createdAt: "2026-09-09T00:00:02.000Z" }
+  ];
+  const clearedEntryKeys = new Set(entries.map(transcriptEntryKey));
+  const laterEntry = { id: "copilot-2", source: "copilot" as const, speakerUid: "900001", speakerName: "Copilot", text: "Later response.", startMs: 3_000, createdAt: "2026-09-09T00:00:03.000Z" };
+
+  expect(withoutLocallyClearedTranscriptEntries(entries, clearedEntryKeys)).toEqual([]);
+  expect(withoutLocallyClearedTranscriptEntries([...entries, laterEntry], clearedEntryKeys)).toEqual([laterEntry]);
 });
 
 test("cumulative GPT Live assistant transcripts collapse into one completed turn", () => {
@@ -310,42 +327,6 @@ test("webcam pixel grid renders and reduced motion keeps the hero stable", async
   await page.waitForTimeout(1900);
   await expect(page.getByRole("heading", { name: "Bring an AI teammate that can ask, answer, summarize, and act in every meeting." })).toBeVisible();
   await expect(page.getByTestId("rotating-verb").locator('[data-word="act"]')).toHaveCSS("opacity", "1");
-});
-
-test("README demo renders six meeting members without live service calls", async ({ page }) => {
-  const serviceRequests: string[] = [];
-  page.on("request", (request) => {
-    if (/rooms|agora|openai|feishu/i.test(request.url()) && !request.url().includes("agora-logo")) serviceRequests.push(request.url());
-  });
-  await page.setViewportSize({ width: 1600, height: 900 });
-  await page.goto("/demo?still=1");
-
-  await expect(page.locator("[data-demo-participant]")).toHaveCount(5);
-  await expect(page.locator(".ai-tile")).toHaveCount(1);
-  await expect(page.getByText("Daniel Carter", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("Copilot", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("Prioritize the onboarding handoff and the latency check. Emma owns onboarding, Marcus owns performance, and both should be complete by four.", { exact: true })).toBeVisible();
-  await expect(page.getByText("Demo", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("Audio on", { exact: true })).toHaveCount(0);
-  await assertNoDocumentOverflow(page, "README demo");
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.reload();
-  await expect(page.locator("[data-demo-participant]").first()).toBeVisible();
-  await expect(page.getByRole("toolbar", { name: "Meeting controls" })).toBeVisible();
-  await assertNoDocumentOverflow(page, "README demo mobile");
-  expect(serviceRequests).toEqual([]);
-});
-
-test("README demo starts its hidden Realtime meeting loop without production controls", async ({ page }) => {
-  await page.goto("/demo");
-  const audio = page.locator('audio[src="/demo/meeting-copilot-voice.wav"]');
-  await expect(audio).toHaveAttribute("loop", "");
-  await expect(audio).toHaveAttribute("preload", "auto");
-  await expect(page.getByText("Demo", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("Audio on", { exact: true })).toHaveCount(0);
-  await page.locator("main").click({ position: { x: 300, y: 300 } });
-  await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.currentTime), { timeout: 3_000 }).toBeGreaterThan(0);
 });
 
 test("hero cycles through the AI teammate capabilities", async ({ page }) => {
@@ -609,6 +590,54 @@ test("user can manage the AI member, use the inline board, and open the full boa
     await expect(page.getByRole("button", { name: retiredControl, exact: true })).toHaveCount(0);
   }
   await assertNoDocumentOverflow(page, "meeting desktop");
+});
+
+test("clearing the transcript affects only the current browser view", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await enterMeetingWithMediaOff(page);
+
+  const panel = page.getByRole("complementary", { name: "Transcript panel" });
+  const captionsSwitch = panel.getByRole("switch", { name: "Captions off" });
+  await captionsSwitch.click();
+  await expect(panel.getByRole("switch", { name: "Captions on" })).toBeChecked();
+
+  await page.request.post("http://127.0.0.1:8787/rooms/meet-playwright/transcript-segments", {
+    data: { transcriptionSessionId: "stt-playwright", sourceSentenceId: "clear-human-1", speakerUid: "100001", text: "Keep this on the server.", startMs: 1000, durationMs: 500 }
+  });
+  await page.request.post("http://127.0.0.1:8787/rooms/meet-playwright/copilot/turns", {
+    data: { agentTurnId: 31, turnSequence: 1, speakerUid: "900001", speakerName: "Copilot", role: "assistant", text: "Clear this locally.", status: "final" }
+  });
+  await expect(panel.getByText("Keep this on the server.", { exact: true })).toBeVisible();
+  await expect(panel.getByText("Clear this locally.", { exact: true })).toBeVisible();
+
+  const transcriptDeleteRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "DELETE" && /transcript/i.test(request.url())) transcriptDeleteRequests.push(request.url());
+  });
+  const clearButton = panel.getByRole("button", { name: "Clear", exact: true });
+  await expect(clearButton).toBeEnabled();
+  await clearButton.click();
+  await expect(panel.getByText("Keep this on the server.", { exact: true })).toHaveCount(0);
+  await expect(panel.getByText("Clear this locally.", { exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("switch", { name: "Captions on" })).toBeChecked();
+  await expect(clearButton).toBeDisabled();
+  expect(transcriptDeleteRequests).toEqual([]);
+
+  await panel.getByRole("tab", { name: "Notes" }).click();
+  await page.getByRole("complementary", { name: "Notes panel" }).getByRole("tab", { name: "Transcript" }).click();
+  await expect(panel.getByText("Clear this locally.", { exact: true })).toHaveCount(0);
+
+  await page.request.post("http://127.0.0.1:8787/rooms/meet-playwright/copilot/turns", {
+    data: { agentTurnId: 32, turnSequence: 1, speakerUid: "900001", speakerName: "Copilot", role: "assistant", text: "This arrived after clearing.", status: "final" }
+  });
+  await expect(panel.getByText("This arrived after clearing.", { exact: true })).toBeVisible();
+  await expect(clearButton).toBeEnabled();
+  expect(transcriptDeleteRequests).toEqual([]);
+
+  await page.reload();
+  const restoredPanel = page.getByRole("complementary", { name: "Transcript panel" });
+  await expect(restoredPanel.getByText("Clear this locally.", { exact: true })).toBeVisible();
+  await expect(restoredPanel.getByText("This arrived after clearing.", { exact: true })).toBeVisible();
 });
 
 test("meeting operation feedback uses compact Sonner notifications", async ({ page }) => {

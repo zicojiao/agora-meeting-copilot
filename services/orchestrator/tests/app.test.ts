@@ -218,6 +218,60 @@ describe("orchestrator API", () => {
     await app.close();
   });
 
+  it("keeps ordinary meeting talk silent and requires a fresh wake after every answer", async () => {
+    const { app } = await buildApp(config, { store: new MemoryStore(), runtime });
+    const { roomId, hostSecret } = (await app.inject({ method: "POST", url: "/rooms" })).json();
+    const zico = (await app.inject({ method: "POST", url: `/rooms/${roomId}/participants`, payload: { displayName: "Zico", hostSecret } })).json();
+    await app.inject({ method: "POST", url: `/rooms/${roomId}/agent/start`, headers: auth(zico.capability) });
+
+    const ordinaryTurn = await app.inject({
+      method: "POST",
+      url: `/rooms/${roomId}/copilot/turns`,
+      headers: auth(zico.capability),
+      payload: { agentTurnId: 20, turnSequence: 1, speakerUid: String(zico.rtcUid), speakerName: "Zico", role: "user", text: "I agree. We should finish the final testing.", status: "final" }
+    });
+    expect(ordinaryTurn.json().accepted).toBe(true);
+    expect(runtime.calls).toContain(`interrupt:${roomId}`);
+    let snapshot = await app.inject({ method: "GET", url: `/rooms/${roomId}`, headers: auth(zico.capability) });
+    expect(snapshot.json().room).toMatchObject({ conversationMode: "standby", agentStatus: "standby" });
+
+    const wakeTurn = await app.inject({
+      method: "POST",
+      url: `/rooms/${roomId}/copilot/turns`,
+      headers: auth(zico.capability),
+      payload: { agentTurnId: 21, turnSequence: 2, speakerUid: String(zico.rtcUid), speakerName: "Zico", role: "user", text: "Hey Copilot, what should our first concrete next step be?", status: "final" }
+    });
+    expect(wakeTurn.json().accepted).toBe(true);
+    snapshot = await app.inject({ method: "GET", url: `/rooms/${roomId}`, headers: auth(zico.capability) });
+    expect(snapshot.json().room).toMatchObject({ conversationMode: "focused", agentStatus: "focused" });
+
+    const answer = await app.inject({
+      method: "POST",
+      url: `/rooms/${roomId}/copilot/turns`,
+      headers: auth(zico.capability),
+      payload: { agentTurnId: 22, turnSequence: 3, speakerUid: "900001", speakerName: "Copilot", role: "assistant", text: "Assign one owner to finish the final demo test.", status: "final" }
+    });
+    expect(answer.json().accepted).toBe(true);
+    snapshot = await app.inject({ method: "GET", url: `/rooms/${roomId}`, headers: auth(zico.capability) });
+    expect(snapshot.json().room).toMatchObject({ conversationMode: "standby", agentStatus: "standby" });
+
+    const callsBeforeFollowUp = runtime.calls.length;
+    const unaddressedFollowUp = await app.inject({
+      method: "POST",
+      url: `/rooms/${roomId}/copilot/turns`,
+      headers: auth(zico.capability),
+      payload: { agentTurnId: 23, turnSequence: 4, speakerUid: String(zico.rtcUid), speakerName: "Zico", role: "user", text: "Who should own it?", status: "final" }
+    });
+    expect(unaddressedFollowUp.json().accepted).toBe(true);
+    expect(runtime.calls.slice(callsBeforeFollowUp)).toEqual([
+      `interrupt:${roomId}`,
+      `mode:${roomId}:standby`
+    ]);
+    snapshot = await app.inject({ method: "GET", url: `/rooms/${roomId}`, headers: auth(zico.capability) });
+    expect(snapshot.json().room).toMatchObject({ conversationMode: "standby", agentStatus: "standby" });
+    await app.close();
+  });
+
   it("does not create side-channel insights or expose approval controls", async () => {
     const { app } = await buildApp(config, { store: new MemoryStore(), runtime });
     const { roomId, hostSecret } = (await app.inject({ method: "POST", url: "/rooms" })).json();
