@@ -124,6 +124,11 @@ const server = createServer(async (request, response) => {
     }, 40);
     return json(response, 202, { room });
   }
+  if (request.method === "POST" && url.pathname.endsWith("/agent/interrupt")) {
+    room.agentStatus = room.conversationMode;
+    event("agent.status", { status: room.agentStatus });
+    return json(response, 202, { ok: true, status: room.agentStatus });
+  }
   if (request.method === "POST" && url.pathname.endsWith("/agent/stop")) {
     room.agentStatus = "offline";
     const aiIndex = participants.findIndex((participant) => participant.rtcUid === "900001");

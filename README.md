@@ -19,11 +19,13 @@ An Agora meeting room with two deliberately separate AI capabilities:
   and SSE keeps every participant synchronized. Voice deletion is intentionally
   unavailable; manual deletion is limited to the host or card creator.
 
-The voice runtime uses the limited-access OpenAI GPT Live provider through
-Agora's Conversational AI preview. A signed orchestrator WebSocket gateway keeps
-the OpenAI credential server-side, injects Responses delegation, and completes
-client-actionable function calls without putting the board mutation on the RTM
-transcript path.
+The voice runtime uses the limited-access OpenAI GPT Live v3 provider
+(`gpt-live-1-diamond-alpha`) through Agora's Conversational AI preview. The
+vendored Agora Agents SDK routes this provider through the `live-models`
+environment and supplies the v3 `/v1/live/sessions` protocol. A signed
+orchestrator WebSocket gateway keeps the OpenAI credential server-side,
+configures Responses delegation, and completes client-actionable function calls
+without putting the board mutation on the RTM transcript path.
 
 The repository is intentionally limited to runnable application code, deployment
 configuration, and automated tests. Internal design notes and demo scripts are
@@ -82,8 +84,10 @@ Browser microphones -> Agora RTC room
 Browser board workspace -> manual card operation --------------------------------^ -> PostgreSQL + room SSE
 ```
 
-GPT Live is limited to approved, low-volume internal testing. The gateway
-uses the current Live API contract and must be updated if that contract changes.
+GPT Live is limited to approved, low-volume internal testing. The gateway uses
+the v3 `quicksilver=v3` contract and explicitly continues delegated tool calls
+after returning each function result. It must be updated if that contract
+changes.
 RTM remains enabled for UI/transcript events, but RTM user turns cannot mutate
 the board.
 

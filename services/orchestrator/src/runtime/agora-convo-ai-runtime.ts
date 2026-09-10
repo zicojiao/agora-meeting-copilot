@@ -1,8 +1,8 @@
-import { Agent, AgentSession, AgoraPreviewClient, Area } from "agora-agents";
+import { Agent, AgentSession, AgoraClient, Area, OpenAIGPTLive } from "agora-agents";
 import type { Config } from "../config.js";
 import type { ConversationMode } from "../domain.js";
-import { MeetingGptLive } from "./meeting-gpt-live.js";
 import { createGptLiveProxyAccess, GPT_LIVE_MODEL } from "./gpt-live-gateway.js";
+import { buildGptLiveResponses } from "./gpt-live-tools.js";
 import { meetingInstructions } from "./prompts.js";
 import type { RuntimeStatus, StartVoiceRuntimeInput, VoiceRuntimeAdapter } from "./voice-runtime.js";
 
@@ -12,10 +12,10 @@ const agentReadyPollMs = 250;
 
 export class AgoraConvoAiRuntimeAdapter implements VoiceRuntimeAdapter {
   private sessions = new Map<string, RuntimeEntry>();
-  private client: AgoraPreviewClient<typeof Area.US>;
+  private client: AgoraClient<typeof Area.US>;
 
   constructor(private config: Config, fetcher?: typeof fetch) {
-    this.client = new AgoraPreviewClient({
+    this.client = new AgoraClient({
       area: Area.US,
       appId: config.AGORA_APP_ID,
       appCertificate: config.AGORA_APP_CERTIFICATE,
@@ -31,7 +31,6 @@ export class AgoraConvoAiRuntimeAdapter implements VoiceRuntimeAdapter {
     const proxy = createGptLiveProxyAccess(this.config, input.roomId);
     const agent = new Agent({
       client: this.client,
-      turnDetection: { language: "en-US" },
       advancedFeatures: { enable_rtm: true, enable_tools: false },
       parameters: {
         audio_scenario: "chorus",
@@ -39,11 +38,17 @@ export class AgoraConvoAiRuntimeAdapter implements VoiceRuntimeAdapter {
         enable_error_message: true,
         enable_metrics: true
       }
-    }).withMllm(new MeetingGptLive({
+    }).withMllm(new OpenAIGPTLive({
       apiKey: proxy.apiKey,
       url: proxy.url,
       model: GPT_LIVE_MODEL,
-      instructions: meetingInstructions(mode, input.initialContext),
+      voice: "cedar",
+      prompt: meetingInstructions(mode, input.initialContext),
+      delegation: "responses",
+      responsesModel: this.config.OPENAI_GPT_LIVE_DELEGATION_MODEL,
+      // agora-agents 2.8.0 still carries an alpha selector as a provider
+      // default. Explicitly omit it when using the generally available model.
+      params: { alpha_selector: undefined, responses_params: buildGptLiveResponses() },
       ...(this.config.OPENAI_GPT_LIVE_GREETING ? { greeting: this.config.OPENAI_GPT_LIVE_GREETING } : {})
     }));
 
@@ -94,7 +99,7 @@ export class AgoraConvoAiRuntimeAdapter implements VoiceRuntimeAdapter {
     const entry = this.require(roomId);
     entry.mode = mode;
     // GPT Live receives the standby policy when the session starts. Keep the
-    // short-lived UI focus state locally because preview sessions do not yet
+    // short-lived UI focus state locally because live sessions do not yet
     // expose a supported runtime instruction update.
   }
 
@@ -144,7 +149,7 @@ function normalizeRuntimeError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   if (/not enabled|ServiceNotEnabled/i.test(message)) return new Error("Agora Conversational AI is not enabled for this project");
   if (/401|unauthorized|invalid.*key/i.test(message)) return new Error("Agora or OpenAI credentials were rejected");
-  if (/503|ServiceUnavailable|agora-feature|preview/i.test(message)) return new Error("Agora GPT Live preview is unavailable or not enabled for this project");
+  if (/503|ServiceUnavailable|agora-feature/i.test(message)) return new Error("Agora GPT Live is unavailable or not enabled for this project");
   if (/429|allocation|capacity/i.test(message)) return new Error("AI capacity is temporarily unavailable");
   return new Error(`GPT Live Copilot failed to join: ${message}`);
 }

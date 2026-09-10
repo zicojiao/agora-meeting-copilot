@@ -57,7 +57,7 @@ export function HomeScreen({
             <span className="block">in every meeting.</span>
           </h1>
           <p className="mt-6 max-w-[570px] text-[17px] leading-relaxed text-meeting-soft max-[820px]:mx-auto max-sm:mt-4 max-sm:text-[15px] [@media(max-height:560px)_and_(orientation:landscape)]:mt-3 [@media(max-height:560px)_and_(orientation:landscape)]:text-sm">
-            Real-time collaboration powered by Agora and OpenAI GPT Live.
+            Real-time collaboration powered by Agora and GPT‑Live‑1 API.
           </p>
         </section>
 

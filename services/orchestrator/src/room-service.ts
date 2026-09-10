@@ -249,6 +249,17 @@ export class RoomService {
     await this.saveRoom(room, "agent.status", { status: "offline" });
   }
 
+  async interruptAgent(roomId: string) {
+    const room = await this.requireOpenRoom(roomId);
+    if (!room.agentId || room.agentStatus === "offline" || room.agentStatus === "error") {
+      throw Object.assign(new Error("Copilot is not running in this room"), { statusCode: 409 });
+    }
+    await this.runtime.interrupt(roomId);
+    room.agentStatus = room.conversationMode;
+    await this.saveRoom(room, "agent.status", { status: room.agentStatus });
+    return { ok: true, status: room.agentStatus };
+  }
+
   private scheduleIdleEnd(roomId: string) {
     this.clearIdleEndTimer(roomId);
     const timer = setTimeout(() => {

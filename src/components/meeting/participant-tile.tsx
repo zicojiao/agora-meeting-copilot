@@ -1,12 +1,11 @@
 "use client";
 
 import type { IAgoraRTCRemoteUser, ILocalVideoTrack } from "agora-rtc-sdk-ng";
-import { BotOff, CameraOff, Mic, MicOff, MonitorUp } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { BotOff, CameraOff, EllipsisVertical, Mic, MicOff, MonitorUp, VolumeX } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Tooltip } from "@/components/ui/tooltip";
 import type { AgentStatus } from "@/lib/meeting-api";
-import { copilotName, copilotWakeWord } from "@/lib/product";
+import { copilotName, copilotWakeWord, engineLabel } from "@/lib/product";
 import { cn } from "@/lib/utils";
 
 type PlayableVideoTrack = ILocalVideoTrack | NonNullable<IAgoraRTCRemoteUser["videoTrack"]>;
@@ -54,8 +53,33 @@ export function RemoteParticipantTile({ active, name, user }: { active: boolean;
   );
 }
 
-export function AiParticipantTile({ canManage, onRemove, status }: { canManage: boolean; onRemove: () => void; status: AgentStatus }) {
+export function AiParticipantTile({ canManage, interrupting = false, onInterrupt, onRemove, status }: {
+  canManage: boolean;
+  interrupting?: boolean;
+  onInterrupt?: () => void;
+  onRemove: () => void;
+  status: AgentStatus;
+}) {
   const displayStatus = aiDisplayStatus(status);
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const controlsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!controlsOpen) return;
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!controlsRef.current?.contains(event.target as Node)) setControlsOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setControlsOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnPointerDown);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointerDown);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [controlsOpen]);
+
   return (
     <article
       className={cn(
@@ -70,21 +94,58 @@ export function AiParticipantTile({ canManage, onRemove, status }: { canManage: 
         <strong className="text-xl font-semibold max-sm:text-lg">{copilotName}</strong>
         <span className="mt-1 text-xs font-medium text-agora max-sm:text-[10px]" data-testid="copilot-status">{displayStatus.label}</span>
         <span className="mt-1 text-[11px] text-meeting-muted max-sm:hidden">{displayStatus.description}</span>
+        <span className="mt-3 font-mono text-[11px] tracking-[0.04em] text-meeting-faint max-sm:mt-2 max-sm:text-[10px]" data-testid="copilot-engine-label">{engineLabel}</span>
       </div>
       {canManage ? (
-        <div className="absolute right-2.5 top-2.5 z-20">
-          <Tooltip label={`Remove ${copilotName}`}>
-            <Button
-              aria-label={`Remove ${copilotName}`}
-              className="rounded-[3px] border-line bg-room/75 text-meeting-muted shadow-lg backdrop-blur hover:border-danger/45 hover:bg-danger/10 hover:text-danger"
-              onClick={onRemove}
-              size="icon-sm"
-              title={`Remove ${copilotName}`}
-              variant="secondary"
+        <div className="absolute right-2.5 top-2.5 z-20" ref={controlsRef}>
+          <Button
+            aria-controls="copilot-controls-menu"
+            aria-expanded={controlsOpen}
+            aria-haspopup="menu"
+            aria-label={`${copilotName} controls`}
+            className="rounded-[3px] border-line bg-room/75 text-meeting-muted shadow-lg backdrop-blur hover:border-agora/45 hover:bg-panel-raised hover:text-meeting"
+            onClick={() => setControlsOpen((open) => !open)}
+            size="icon-sm"
+            title={`${copilotName} controls`}
+            variant="secondary"
+          >
+            <EllipsisVertical size={18} />
+          </Button>
+          {controlsOpen ? (
+            <div
+              aria-label={`${copilotName} controls`}
+              className="absolute right-0 top-full mt-1.5 w-52 overflow-hidden rounded-[3px] border border-line-strong bg-panel-raised p-1.5 text-left shadow-2xl"
+              id="copilot-controls-menu"
+              role="menu"
             >
-              <BotOff size={17} />
-            </Button>
-          </Tooltip>
+              <button
+                className="flex w-full items-center gap-2.5 rounded-[3px] px-2.5 py-2 text-xs font-medium text-meeting-soft transition-colors hover:bg-panel-hover hover:text-meeting focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-agora/45 disabled:opacity-45"
+                disabled={interrupting}
+                onClick={() => {
+                  setControlsOpen(false);
+                  onInterrupt?.();
+                }}
+                role="menuitem"
+                type="button"
+              >
+                <VolumeX aria-hidden="true" size={16} />
+                {interrupting ? "Stopping…" : "Stop speaking"}
+              </button>
+              <div className="my-1 border-t border-line" />
+              <button
+                className="flex w-full items-center gap-2.5 rounded-[3px] px-2.5 py-2 text-xs font-medium text-danger transition-colors hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/45"
+                onClick={() => {
+                  setControlsOpen(false);
+                  onRemove();
+                }}
+                role="menuitem"
+                type="button"
+              >
+                <BotOff aria-hidden="true" size={16} />
+                Remove from meeting
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
       <div className="participant-label absolute inset-x-2 bottom-2 flex min-h-7 items-center justify-between gap-3 rounded-[3px] bg-room/80 px-2.5 text-[11px] backdrop-blur">

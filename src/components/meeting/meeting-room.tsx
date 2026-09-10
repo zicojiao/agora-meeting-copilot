@@ -53,6 +53,7 @@ export function MeetingRoom({ config, onEnded, onLeave }: { config: JoinConfig; 
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [ending, setEnding] = useState(false);
   const [endingPhase, setEndingPhase] = useState("Finalizing transcript");
+  const [interruptingCopilot, setInterruptingCopilot] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [removingCopilot, setRemovingCopilot] = useState(false);
   const [roomLink, setRoomLink] = useState("");
@@ -181,6 +182,20 @@ export function MeetingRoom({ config, onEnded, onLeave }: { config: JoinConfig; 
     }
   };
 
+  const interruptCopilot = async () => {
+    if (interruptingCopilot) return;
+    setInterruptingCopilot(true);
+    try {
+      await copilot.interrupt();
+      room.clearActiveSpeaker("900001");
+      toast.success(`${copilotName} stopped speaking`, { id: "copilot-interrupted", duration: 2_500 });
+    } catch {
+      // The Copilot hook presents the request error through the shared toast flow.
+    } finally {
+      setInterruptingCopilot(false);
+    }
+  };
+
   const requestLeave = () => {
     if (isHost) setLeaveDialogOpen(true);
     else void leaveOwnMeeting();
@@ -250,7 +265,15 @@ export function MeetingRoom({ config, onEnded, onLeave }: { config: JoinConfig; 
                 />
               );
             })}
-            {aiPresent ? <AiParticipantTile canManage={isHost} onRemove={() => setRemoveCopilotOpen(true)} status={visualStatus} /> : null}
+            {aiPresent ? (
+              <AiParticipantTile
+                canManage={isHost}
+                interrupting={interruptingCopilot}
+                onInterrupt={() => void interruptCopilot()}
+                onRemove={() => setRemoveCopilotOpen(true)}
+                status={visualStatus}
+              />
+            ) : null}
           </div>
           <ReactionLayer reactions={social.reactions} />
           {transcription.captionsOn && liveCaption ? (

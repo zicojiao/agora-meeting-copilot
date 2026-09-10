@@ -215,6 +215,10 @@ export async function stopCopilot(roomId: string, capability: string) {
   return request(`/rooms/${encodeURIComponent(roomId)}/agent/stop`, { method: "POST", headers: auth(capability) });
 }
 
+export async function interruptCopilot(roomId: string, capability: string) {
+  return request<{ ok: true; status: "standby" | "focused" }>(`/rooms/${encodeURIComponent(roomId)}/agent/interrupt`, { method: "POST", headers: auth(capability) });
+}
+
 export async function submitCopilotTurn(roomId: string, capability: string, turn: Omit<CopilotTurn, "id" | "roomId" | "createdAt"> & { createdAt?: string }) {
   return request(`/rooms/${encodeURIComponent(roomId)}/copilot/turns`, { method: "POST", headers: auth(capability), body: JSON.stringify(turn) });
 }

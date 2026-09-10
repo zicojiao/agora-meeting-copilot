@@ -220,6 +220,15 @@ export function useAgoraRoom(config: JoinConfig) {
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to change microphone state."); }
   }, [audioMuted]);
 
+  const clearActiveSpeaker = useCallback((uid: string) => {
+    setActiveSpeakerUids((active) => {
+      if (!active.has(uid)) return active;
+      const next = new Set(active);
+      next.delete(uid);
+      return next;
+    });
+  }, []);
+
   const toggleVideo = useCallback(async () => {
     const client = clientRef.current;
     if (!client) return;
@@ -322,6 +331,7 @@ export function useAgoraRoom(config: JoinConfig) {
     connectionState,
     error,
     clearError: () => setError(null),
+    clearActiveSpeaker,
     toggleAudio,
     toggleVideo,
     toggleScreenShare

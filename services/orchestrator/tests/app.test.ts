@@ -111,6 +111,15 @@ describe("orchestrator API", () => {
     expect(startedAgain.statusCode).toBe(202);
     expect(runtime.calls.filter((call) => call.startsWith("start:"))).toHaveLength(1);
 
+    const guestInterrupt = await app.inject({ method: "POST", url: `/rooms/${roomId}/agent/interrupt`, headers: auth(guest.json().capability) });
+    expect(guestInterrupt.statusCode).toBe(403);
+    const hostInterrupt = await app.inject({ method: "POST", url: `/rooms/${roomId}/agent/interrupt`, headers: auth(host.json().capability) });
+    expect(hostInterrupt.statusCode).toBe(202);
+    expect(hostInterrupt.json()).toEqual({ ok: true, status: "standby" });
+    expect(runtime.calls).toContain(`interrupt:${roomId}`);
+    const afterInterrupt = await app.inject({ method: "GET", url: `/rooms/${roomId}`, headers: auth(host.json().capability) });
+    expect(afterInterrupt.json().room.agentStatus).toBe("standby");
+
     const guestThink = await app.inject({ method: "POST", url: `/rooms/${roomId}/agent/think`, headers: auth(guest.json().capability), payload: { instruction: "Create a board card." } });
     expect(guestThink.statusCode).toBe(403);
     const hostThink = await app.inject({ method: "POST", url: `/rooms/${roomId}/agent/think`, headers: auth(host.json().capability), payload: { instruction: "Call create_board_card for a canary card." } });

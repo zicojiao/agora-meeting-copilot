@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RtmClientLike, RtmMessageEvent } from "./use-agora-room";
 import {
   getRoomState,
+  interruptCopilot,
   roomEventsUrl,
   startCopilot,
   stopCopilot,
@@ -209,6 +210,13 @@ export function useMeetingCopilot({
     status: state?.room.agentStatus ?? "offline" as AgentStatus,
     error,
     clearError: () => setError(null),
+    interrupt: () => run(async () => {
+      const result = await interruptCopilot(roomId, session.capability);
+      setState((current) => current ? {
+        ...current,
+        room: { ...current.room, agentStatus: result.status }
+      } : current);
+    }),
     start: () => run(() => startCopilot(roomId, session.capability)),
     stop: () => run(() => stopCopilot(roomId, session.capability))
   };

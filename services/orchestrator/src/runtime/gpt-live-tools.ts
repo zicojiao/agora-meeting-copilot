@@ -78,18 +78,24 @@ export function buildGptLiveDelegation(model: string) {
     type: "responses",
     responses: {
       model,
-      instructions: [
-        "You control the shared meeting board through the provided functions.",
-        "Call a function only when a participant explicitly asks to create, move, update, assign, or tag a board card.",
-        "For an existing card, use a distinctive card_query unless an exact card_id is already available.",
-        "Never claim that the board changed until the function result reports ok=true. If it fails, explain the failure briefly and ask for the missing clarification."
-      ].join(" "),
-      max_output_tokens: 1_024,
-      reasoning: { effort: "low", summary: "auto" },
-      text: { verbosity: "low" },
-      tools: GPT_LIVE_BOARD_TOOLS,
-      tool_choice: "auto"
+      ...buildGptLiveResponses()
     }
+  };
+}
+
+export function buildGptLiveResponses() {
+  return {
+    instructions: [
+      "You control the shared meeting board through the provided functions.",
+      "Call a function only when a participant explicitly asks to create, move, update, assign, or tag a board card.",
+      "For an existing card, use a distinctive card_query unless an exact card_id is already available.",
+      "Never claim that the board changed until the function result reports ok=true. If it fails, explain the failure briefly and ask for the missing clarification."
+    ].join(" "),
+    max_output_tokens: 1_024,
+    reasoning: { effort: "low", summary: "auto" },
+    text: { verbosity: "low" },
+    tools: GPT_LIVE_BOARD_TOOLS,
+    tool_choice: "auto"
   };
 }
 

@@ -5,8 +5,9 @@ import type { Config } from "../config.js";
 import type { KanbanService } from "../kanban-service.js";
 import { buildGptLiveDelegation, parseGptLiveBoardFunction } from "./gpt-live-tools.js";
 
-export const GPT_LIVE_MODEL = "gpt-live-1-lava-alpha";
-const OPENAI_LIVE_URL = "wss://api.openai.com/v1/live";
+export const GPT_LIVE_MODEL = "gpt-live-1";
+const OPENAI_LIVE_URL = "wss://api.openai.com/v1/live/sessions";
+const gracefulCloseTimeoutMs = 10_000;
 
 export type GptLiveProxyAccess = { url: string; apiKey: string };
 export type UpstreamFactory = (url: string, options: WebSocket.ClientOptions) => WebSocket;
@@ -47,18 +48,20 @@ export class GptLiveGateway {
       return;
     }
 
-    const upstreamUrl = new URL(OPENAI_LIVE_URL);
-    upstreamUrl.searchParams.set("model", access.model);
-    const upstream = this.upstreamFactory(upstreamUrl.toString(), {
-      headers: { Authorization: `Bearer ${this.config.OPENAI_API_KEY}`, "OpenAI-Alpha": "quicksilver=v2" }
+    const upstream = this.upstreamFactory(OPENAI_LIVE_URL, {
+      headers: { Authorization: `Bearer ${this.config.OPENAI_API_KEY}` }
     });
     const pending: Array<{ data: Data; isBinary: boolean }> = [];
     const functionCallsByItemId = new Map<string, { call_id: string; name: string }>();
+    const handledCallIds = new Set<string>();
+    let sessionCloseRequested = false;
+    let gracefulCloseTimer: ReturnType<typeof setTimeout> | undefined;
 
     downstream.on("message", (data, isBinary) => {
       const downstreamEvent = isBinary ? null : parseEvent(data.toString());
       const outgoing = isBinary ? data : injectDelegation(data.toString(), this.config.OPENAI_GPT_LIVE_DELEGATION_MODEL);
-      if (downstreamEvent?.type === "session.update") this.log.info({ roomId }, "Injected GPT Live Responses delegation");
+      if (downstreamEvent?.type === "session.start") this.log.info({ roomId, model: access.model }, "Configured GPT Live Responses delegation");
+      if (downstreamEvent?.type === "session.close") sessionCloseRequested = true;
       if (upstream.readyState === WebSocket.OPEN) upstream.send(outgoing, { binary: isBinary });
       else if (upstream.readyState === WebSocket.CONNECTING) pending.push({ data: outgoing, isBinary });
     });
@@ -68,16 +71,19 @@ export class GptLiveGateway {
     upstream.on("message", (data, isBinary) => {
       if (!isBinary) {
         const event = parseEvent(data.toString());
-        const metadata = event ? findFunctionCallMetadata(event) : null;
+        const responseEvent = event ? unwrapResponseEvent(event) : null;
+        const metadata = responseEvent ? findFunctionCallMetadata(responseEvent) : null;
         if (metadata) functionCallsByItemId.set(metadata.item_id, { call_id: metadata.call_id, name: metadata.name });
-        if (event?.type === "response.function_call_arguments.done") {
-          const call = findFunctionCallPayload(event) ?? joinSegmentedFunctionCall(event, functionCallsByItemId);
-          this.log.info({ roomId, callId: call?.call_id, functionName: call?.name, eventKeys: Object.keys(event) }, "Received GPT Live board function call");
-          if (call) {
-            if (typeof event.item_id === "string") functionCallsByItemId.delete(event.item_id);
+        if (responseEvent?.type === "response.output_item.done" || responseEvent?.type === "response.function_call_arguments.done") {
+          const call = findFunctionCallPayload(responseEvent) ?? joinSegmentedFunctionCall(responseEvent, functionCallsByItemId);
+          const callId = typeof call?.call_id === "string" ? call.call_id : "";
+          this.log.info({ roomId, callId, functionName: call?.name, eventType: responseEvent.type }, "Received GPT Live board function call");
+          if (call && callId && !handledCallIds.has(callId)) {
+            handledCallIds.add(callId);
+            if (typeof responseEvent.item_id === "string") functionCallsByItemId.delete(responseEvent.item_id);
             void this.completeFunctionCall(upstream, roomId, call);
           }
-          else this.log.warn({ roomId, eventKeys: Object.keys(event) }, "GPT Live function call payload was not recognized");
+          else if (!call) this.log.warn({ roomId, eventKeys: Object.keys(responseEvent) }, "GPT Live function call payload was not recognized");
           return;
         }
         if (event?.type === "error") {
@@ -86,11 +92,12 @@ export class GptLiveGateway {
         } else if (event?.type === "session.started" || event?.type === "session.updated") {
           this.log.info({ roomId, eventType: event.type, hasDelegation: Boolean(asRecord(event.session)?.delegation) }, "GPT Live session configuration acknowledged");
         }
-        if (typeof event?.type === "string" && (event.type.startsWith("response.") || event.type.startsWith("delegation."))) return;
+        if (typeof event?.type === "string" && (event.type === "response.event" || event.type.startsWith("response.") || event.type.startsWith("delegation."))) return;
       }
       if (downstream.readyState === WebSocket.OPEN) downstream.send(data, { binary: isBinary });
     });
     upstream.on("close", (code, reason) => {
+      if (gracefulCloseTimer) clearTimeout(gracefulCloseTimer);
       this.log.info({ roomId, code, reason: reason.toString().slice(0, 120) }, "GPT Live upstream WebSocket closed");
       if (downstream.readyState === WebSocket.OPEN || downstream.readyState === WebSocket.CONNECTING) downstream.close(code || 1011, reason.toString().slice(0, 120));
     });
@@ -99,7 +106,18 @@ export class GptLiveGateway {
       if (downstream.readyState === WebSocket.OPEN || downstream.readyState === WebSocket.CONNECTING) downstream.close(1011, "GPT Live upstream failed");
     });
     downstream.on("close", () => {
-      if (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING) upstream.close(1000, "Downstream closed");
+      if (upstream.readyState === WebSocket.OPEN) {
+        if (!sessionCloseRequested) {
+          sessionCloseRequested = true;
+          upstream.send(JSON.stringify({ type: "session.close", event_id: `close_${Date.now()}` }));
+        }
+        gracefulCloseTimer ??= setTimeout(() => {
+          if (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING) upstream.close(1000, "GPT Live graceful close timed out");
+        }, gracefulCloseTimeoutMs);
+        gracefulCloseTimer.unref?.();
+      } else if (upstream.readyState === WebSocket.CONNECTING) {
+        upstream.close(1000, "Downstream closed before GPT Live connected");
+      }
     });
     downstream.on("error", (error) => this.log.warn({ err: error, roomId }, "GPT Live downstream WebSocket failed"));
   }
@@ -119,11 +137,20 @@ export class GptLiveGateway {
     }
     if (upstream.readyState !== WebSocket.OPEN || !callId) return;
     upstream.send(JSON.stringify({
-      type: "delegation.function_call_output.create",
+      type: "response.item.create",
       event_id: `kanban_${callId}`,
       item: { type: "function_call_output", call_id: callId, output: JSON.stringify(output) }
     }));
+    upstream.send(JSON.stringify({
+      type: "response.create",
+      event_id: `kanban_continue_${callId}`
+    }));
   }
+}
+
+export function unwrapResponseEvent(event: Record<string, unknown>) {
+  if (event.type !== "response.event") return event;
+  return asRecord(event.event) ?? asRecord(event.response_event);
 }
 
 export function findFunctionCallPayload(event: Record<string, unknown>) {
@@ -174,7 +201,7 @@ export function joinSegmentedFunctionCall(event: Record<string, unknown>, metada
 
 export function injectDelegation(raw: string, delegationModel: string) {
   const event = parseEvent(raw);
-  if (event?.type !== "session.update" || !event.session || typeof event.session !== "object") return raw;
+  if (event?.type !== "session.start" || !event.session || typeof event.session !== "object") return raw;
   return JSON.stringify({ ...event, session: { ...(event.session as object), delegation: buildGptLiveDelegation(delegationModel) } });
 }
 

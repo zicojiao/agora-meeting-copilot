@@ -4,4 +4,4 @@ export const copilotName = "Copilot";
 
 export const copilotWakeWord = "Copilot";
 
-export const engineLabel = "Powered by GPT Live";
+export const engineLabel = "Powered by GPT‑Live‑1 API";

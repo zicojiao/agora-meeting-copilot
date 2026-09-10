@@ -350,6 +350,8 @@ test("README demo starts its hidden Realtime meeting loop without production con
 
 test("hero cycles through the AI teammate capabilities", async ({ page }) => {
   await page.goto("/");
+  await expect(page.getByText("Real-time collaboration powered by Agora and GPT‑Live‑1 API.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Powered by GPT‑Live‑1 API", { exact: true })).toBeVisible();
   const verb = page.getByTestId("rotating-verb");
   const activeWord = () => verb.evaluate((element) => {
     const words = Array.from(element.querySelectorAll<HTMLElement>("[data-word]"));
@@ -532,7 +534,20 @@ test("user can manage the AI member, use the inline board, and open the full boa
   await expect(consent.getByText("Anyone can say “Copilot”")).toBeVisible();
   await consent.getByRole("button", { name: "Invite Copilot" }).click();
   await expect(page.getByTestId("copilot-status")).toHaveText("Listening");
-  await expect(page.getByRole("button", { name: "Remove Copilot" })).toBeVisible();
+  await expect(page.getByTestId("copilot-engine-label")).toHaveText("Powered by GPT‑Live‑1 API");
+  await expect(page.getByTestId("copilot-engine-label")).toHaveCSS("font-size", "11px");
+  const copilotControls = page.getByRole("button", { name: "Copilot controls" });
+  await expect(copilotControls).toBeVisible();
+  await expect(copilotControls.locator(".lucide-ellipsis-vertical")).toBeVisible();
+  await copilotControls.click();
+  const copilotMenu = page.getByRole("menu", { name: "Copilot controls" });
+  await expect(copilotMenu.getByRole("menuitem", { name: "Stop speaking" })).toBeVisible();
+  await expect(copilotMenu.getByRole("menuitem", { name: "Remove from meeting" })).toBeVisible();
+  const interruptRequest = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/rooms/meet-playwright/agent/interrupt"));
+  await copilotMenu.getByRole("menuitem", { name: "Stop speaking" }).click();
+  await interruptRequest;
+  await expect(page.locator("[data-sonner-toast]").filter({ hasText: "Copilot stopped speaking" })).toBeVisible();
+  await expect(page.getByTestId("copilot-status")).toHaveText("Listening");
   await expect(page.getByRole("complementary", { name: "Copilot panel" })).toHaveCount(0);
 
   await expect(transcriptPanel.getByRole("tab")).toHaveCount(5);
@@ -580,12 +595,14 @@ test("user can manage the AI member, use the inline board, and open the full boa
   await expect(peoplePanel.locator(".people-list").getByText("Copilot", { exact: true })).toHaveCount(0);
   await peoplePanel.getByLabel("Search people").fill("");
   await page.getByLabel("Close People panel").click();
-  await page.getByRole("button", { name: "Remove Copilot" }).click();
+  await copilotControls.click();
+  await page.getByRole("menuitem", { name: "Remove from meeting" }).click();
   const removeDialog = page.getByRole("dialog", { name: "Remove Copilot?" });
   await expect(removeDialog).toContainText("The meeting, transcript, notes, and other participants will continue.");
   await removeDialog.getByRole("button", { name: "Cancel" }).click();
-  await expect(page.getByRole("button", { name: "Remove Copilot" })).toBeVisible();
-  await page.getByRole("button", { name: "Remove Copilot" }).click();
+  await expect(copilotControls).toBeVisible();
+  await copilotControls.click();
+  await page.getByRole("menuitem", { name: "Remove from meeting" }).click();
   await page.getByRole("dialog", { name: "Remove Copilot?" }).getByRole("button", { name: "Remove Copilot" }).click();
   await expect(page.getByRole("button", { name: "Invite Copilot" })).toBeVisible();
   for (const retiredControl of ["Ask Copilot", "Explain", "Recap", "Actions", "Speak", "Dismiss"]) {

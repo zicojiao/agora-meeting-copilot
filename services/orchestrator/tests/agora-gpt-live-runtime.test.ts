@@ -27,7 +27,7 @@ function okFetch() {
 }
 
 describe("Agora GPT Live runtime", () => {
-  it("starts an MLLM-only agent through the preview gateway", async () => {
+  it("starts an MLLM-only GPT Live agent", async () => {
     const fetcher = okFetch();
     const runtime = new AgoraConvoAiRuntimeAdapter(config, fetcher);
 
@@ -44,7 +44,7 @@ describe("Agora GPT Live runtime", () => {
     );
     const headers = new Headers(init?.headers);
     expect(headers.get("authorization")).toMatch(/^agora token=/);
-    expect(headers.get("agora-feature")).toBe("gemini-live");
+    expect(headers.get("agora-feature")).toBe("live-models");
 
     const request = JSON.parse(String(init?.body)) as {
       name: string;
@@ -66,18 +66,25 @@ describe("Agora GPT Live runtime", () => {
         enable: true,
         vendor: "openai_gpt_live",
         api_key: expect.not.stringMatching(/^sk-/),
-        url: expect.stringMatching(/^ws:\/\/127\.0\.0\.1:8787\/gpt-live\/meet-preview\?model=gpt-live-1-lava-alpha&expires=\d+&signature=/),
+        url: expect.stringMatching(/^ws:\/\/127\.0\.0\.1:8787\/gpt-live\/meet-preview\?model=gpt-live-1&expires=\d+&signature=/),
         params: {
-          instructions: meetingInstructions("standby")
+          model: "gpt-live-1",
+          voice: "cedar",
+          prompt: meetingInstructions("standby"),
+          delegation: "responses",
+          responses_model: "gpt-5.5",
+          responses_params: {
+            tool_choice: "auto",
+            tools: expect.arrayContaining([expect.objectContaining({ name: "create_board_card" })])
+          }
         },
-        greeting: "Hello from GPT Live.",
         greeting_message: "Hello from GPT Live."
-      },
-      turn_detection: { language: "en-US" }
+      }
     });
     expect(request.properties).not.toHaveProperty("asr");
     expect(request.properties).not.toHaveProperty("llm");
     expect(request.properties).not.toHaveProperty("tts");
+    expect((request.properties.mllm as { params: Record<string, unknown> }).params).not.toHaveProperty("alpha_selector");
   });
 
   it("includes initial meeting context in GPT Live instructions", async () => {
@@ -92,12 +99,12 @@ describe("Agora GPT Live runtime", () => {
     });
 
     const request = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
-    expect(request.properties.mllm.params.instructions).toContain(
+    expect(request.properties.mllm.params.prompt).toContain(
       "# Recent Meeting Context\nThe launch owner is Zico."
     );
   });
 
-  it("keeps the preview gate on stop and does not send unsupported focus updates", async () => {
+  it("keeps the GPT Live feature gate on stop and does not send unsupported focus updates", async () => {
     const fetcher = okFetch();
     const runtime = new AgoraConvoAiRuntimeAdapter(config, fetcher);
     await runtime.start({ roomId: "meet-lifecycle", channel: "meet-lifecycle", remoteUids: ["101"] });
@@ -113,7 +120,7 @@ describe("Agora GPT Live runtime", () => {
     expect(fetcher).toHaveBeenCalledTimes(3);
     const [stopUrl, stopInit] = fetcher.mock.calls[2];
     expect(String(stopUrl)).toContain("/agents/gpt-live-agent-1/leave");
-    expect(new Headers(stopInit?.headers).get("agora-feature")).toBe("gemini-live");
+    expect(new Headers(stopInit?.headers).get("agora-feature")).toBe("live-models");
   });
 
   it("stops and clears the session when the accepted agent later fails readiness", async () => {
@@ -135,9 +142,9 @@ describe("Agora GPT Live runtime", () => {
     await expect(runtime.getStatus("meet-readiness-failure")).resolves.toEqual({ status: "offline" });
   });
 
-  it("clears partial local state when the preview gateway rejects start", async () => {
+  it("clears partial local state when the GPT Live service rejects start", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(JSON.stringify({ detail: "preview route unavailable", reason: "ServiceUnavailable" }), {
+      new Response(JSON.stringify({ detail: "GPT Live route unavailable", reason: "ServiceUnavailable" }), {
         status: 503,
         headers: { "content-type": "application/json" }
       })
@@ -148,7 +155,7 @@ describe("Agora GPT Live runtime", () => {
       roomId: "meet-failure",
       channel: "meet-failure",
       remoteUids: ["101"]
-    })).rejects.toThrow("Agora GPT Live preview is unavailable or not enabled for this project");
+    })).rejects.toThrow("Agora GPT Live is unavailable or not enabled for this project");
     await expect(runtime.getStatus("meet-failure")).resolves.toEqual({ status: "offline" });
   });
 

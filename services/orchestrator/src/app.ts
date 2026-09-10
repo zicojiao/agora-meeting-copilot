@@ -111,7 +111,7 @@ export async function buildApp(config: Config, dependencies: AppDependencies = {
       return {
         ready: true,
         storage: config.STORAGE_DRIVER,
-        voiceRuntime: "openai-gpt-live-preview",
+        voiceRuntime: "openai-gpt-live-1",
         kanbanCommands: "gpt-live-function-calling",
         transcription: config.agoraSttEnabled ? "configured" : "stt_not_configured",
         meetingPublisher: config.feishu ? "feishu" : "disabled"
@@ -265,6 +265,11 @@ export async function buildApp(config: Config, dependencies: AppDependencies = {
     requireHost(authorize(request, config, request.params.roomId));
     await rooms.stopAgent(request.params.roomId);
     return reply.code(202).send({ ok: true });
+  });
+
+  app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent/interrupt", async (request, reply) => {
+    requireHost(authorize(request, config, request.params.roomId));
+    return reply.code(202).send(await rooms.interruptAgent(request.params.roomId));
   });
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent/think", async (request, reply) => {

@@ -6,7 +6,7 @@ import { loadConfig } from "../src/config.js";
 import type { RoomRecord } from "../src/domain.js";
 import { EventBus } from "../src/events.js";
 import { KanbanService } from "../src/kanban-service.js";
-import { createGptLiveProxyAccess, findFunctionCallPayload, findFunctionCallMetadata, GptLiveGateway, injectDelegation, joinSegmentedFunctionCall, verifyGptLiveProxyAccess } from "../src/runtime/gpt-live-gateway.js";
+import { createGptLiveProxyAccess, findFunctionCallPayload, findFunctionCallMetadata, GptLiveGateway, injectDelegation, joinSegmentedFunctionCall, unwrapResponseEvent, verifyGptLiveProxyAccess } from "../src/runtime/gpt-live-gateway.js";
 import { parseGptLiveBoardFunction } from "../src/runtime/gpt-live-tools.js";
 import { MemoryStore } from "../src/store/memory-store.js";
 
@@ -24,17 +24,24 @@ describe("GPT Live gateway protocol", () => {
   it("creates room-scoped credentials and rejects a mismatched bearer", () => {
     const access = createGptLiveProxyAccess(config, "meet-signed");
     const url = new URL(access.url);
-    expect(verifyGptLiveProxyAccess(config, "meet-signed", Object.fromEntries(url.searchParams), `Bearer ${access.apiKey}`)).toEqual({ model: "gpt-live-1-lava-alpha" });
+    expect(verifyGptLiveProxyAccess(config, "meet-signed", Object.fromEntries(url.searchParams), `Bearer ${access.apiKey}`)).toEqual({ model: "gpt-live-1" });
     expect(verifyGptLiveProxyAccess(config, "meet-other", Object.fromEntries(url.searchParams), `Bearer ${access.apiKey}`)).toBeNull();
     expect(verifyGptLiveProxyAccess(config, "meet-signed", Object.fromEntries(url.searchParams), "Bearer wrong")).toBeNull();
   });
 
-  it("injects Responses delegation and strict board tools into session.update", () => {
-    const result = JSON.parse(injectDelegation(JSON.stringify({ type: "session.update", session: { instructions: "Be concise." } }), "gpt-5.5"));
+  it("injects Responses delegation and strict board tools into the session.start event", () => {
+    const result = JSON.parse(injectDelegation(JSON.stringify({ type: "session.start", session: { model: "gpt-live-1", instructions: "Be concise." } }), "gpt-5.5"));
+    expect(result.session.model).toBe("gpt-live-1");
     expect(result.session.instructions).toBe("Be concise.");
     expect(result.session.delegation).toMatchObject({ type: "responses", responses: { model: "gpt-5.5", tool_choice: "auto" } });
     expect(result.session.delegation.responses.tools.map((tool: { name: string }) => tool.name)).toContain("create_board_card");
     expect(result.session.delegation.responses.tools.every((tool: { parameters: { additionalProperties: boolean } }) => tool.parameters.additionalProperties === false)).toBe(true);
+  });
+
+  it("unwraps delegated Responses events", () => {
+    const nested = { type: "response.output_item.done", item: { type: "function_call" } };
+    expect(unwrapResponseEvent({ type: "response.event", event: nested })).toBe(nested);
+    expect(unwrapResponseEvent(nested)).toBe(nested);
   });
 
   it("maps validated GPT Live arguments to typed Kanban operations", () => {
@@ -47,21 +54,21 @@ describe("GPT Live gateway protocol", () => {
     expect(() => parseGptLiveBoardFunction("delete_board_card", "{}")).toThrow("Unsupported");
   });
 
-  it("accepts both documented and lava nested function-call events", () => {
+  it("accepts flat and nested function-call events", () => {
     const documented = { call_id: "call-flat", name: "create_board_card", arguments: "{}" };
     expect(findFunctionCallPayload(documented)).toBe(documented);
     expect(findFunctionCallPayload({ type: "response.function_call_arguments.done", response: { output: [{ item: { call_id: "call-nested", name: "move_board_card", arguments: "{}" } }] } }))
       .toMatchObject({ call_id: "call-nested", name: "move_board_card" });
   });
 
-  it("correlates lava function metadata with the later argument event by item_id", () => {
-    const added = { type: "response.output_item.added", item: { id: "fc-lava", type: "function_call", call_id: "call-lava", name: "create_board_card", arguments: "" } };
+  it("correlates function metadata with a later argument event by item_id", () => {
+    const added = { type: "response.output_item.added", item: { id: "fc-live", type: "function_call", call_id: "call-live", name: "create_board_card", arguments: "" } };
     const metadata = findFunctionCallMetadata(added);
-    expect(metadata).toEqual({ item_id: "fc-lava", call_id: "call-lava", name: "create_board_card" });
+    expect(metadata).toEqual({ item_id: "fc-live", call_id: "call-live", name: "create_board_card" });
     expect(joinSegmentedFunctionCall(
-      { type: "response.function_call_arguments.done", item_id: "fc-lava", arguments: "{\"title\":\"Voice Canary\"}" },
+      { type: "response.function_call_arguments.done", item_id: "fc-live", arguments: "{\"title\":\"Voice Canary\"}" },
       new Map([[metadata!.item_id, { call_id: metadata!.call_id, name: metadata!.name }]])
-    )).toEqual({ call_id: "call-lava", name: "create_board_card", arguments: "{\"title\":\"Voice Canary\"}" });
+    )).toEqual({ call_id: "call-live", name: "create_board_card", arguments: "{\"title\":\"Voice Canary\"}" });
   });
 
   it("executes a function event and returns its result without blocking media forwarding", async () => {
@@ -72,26 +79,47 @@ describe("GPT Live gateway protocol", () => {
     await store.upsertParticipant({ roomId: room.id, rtcUid: "900001", displayName: "Copilot", role: "ai", joinedAt: now, lastSeenAt: now });
     const upstream = new FakeSocket();
     const downstream = new FakeSocket();
-    const gateway = new GptLiveGateway(config, new KanbanService(store, new EventBus(store)), quietLogger(), () => upstream as unknown as WebSocket);
+    let connection: { url: string; options: WebSocket.ClientOptions } | undefined;
+    const gateway = new GptLiveGateway(config, new KanbanService(store, new EventBus(store)), quietLogger(), (url, options) => {
+      connection = { url, options };
+      return upstream as unknown as WebSocket;
+    });
     const access = createGptLiveProxyAccess(config, room.id);
     const url = new URL(access.url);
     gateway.handle(downstream as unknown as WebSocket, room.id, Object.fromEntries(url.searchParams), `Bearer ${access.apiKey}`);
+    expect(connection?.url).toBe("wss://api.openai.com/v1/live/sessions");
+    expect(connection?.options.headers).toEqual({
+      Authorization: expect.stringMatching(/^Bearer sk-/)
+    });
 
     upstream.readyState = WebSocket.OPEN;
     upstream.emit("open");
     upstream.emit("message", Buffer.from(JSON.stringify({ type: "output_audio.delta", delta: "audio" })), false);
     upstream.emit("message", Buffer.from(JSON.stringify({
-      type: "response.output_item.added", item: { id: "fc-wire", type: "function_call", call_id: "call-wire", name: "create_board_card", arguments: "" }
-    })), false);
-    upstream.emit("message", Buffer.from(JSON.stringify({
-      type: "response.function_call_arguments.done", item_id: "fc-wire", arguments: JSON.stringify({ title: "Validate customer pilot", tags: ["pilot"] })
+      type: "response.event",
+      event: {
+        type: "response.output_item.done",
+        output_index: 0,
+        item: {
+          id: "fc-wire",
+          type: "function_call",
+          status: "completed",
+          call_id: "call-wire",
+          name: "create_board_card",
+          arguments: JSON.stringify({ title: "Validate customer pilot", tags: ["pilot"] })
+        }
+      }
     })), false);
 
-    await waitUntil(() => upstream.sent.some((message) => message.includes("delegation.function_call_output.create")));
+    await waitUntil(() => upstream.sent.some((message) => message.includes("response.item.create")));
     expect(downstream.sent).toContain(JSON.stringify({ type: "output_audio.delta", delta: "audio" }));
-    const output = JSON.parse(upstream.sent.find((message) => message.includes("delegation.function_call_output.create"))!);
+    const output = JSON.parse(upstream.sent.find((message) => message.includes("response.item.create"))!);
     expect(JSON.parse(output.item.output)).toMatchObject({ ok: true, title: "Validate customer pilot", status: "backlog" });
+    expect(upstream.sent.map((message) => JSON.parse(message).type)).toContain("response.create");
     expect(await store.listKanbanCards(room.id)).toMatchObject([{ title: "Validate customer pilot", tags: ["pilot"] }]);
+
+    downstream.emit("close");
+    expect(upstream.sent.map((message) => JSON.parse(message).type)).toContain("session.close");
   });
 });
 

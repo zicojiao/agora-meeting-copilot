@@ -13,7 +13,7 @@
   "dependencies": {
     "@fastify/cors": "^10.1.0",
     "@fastify/websocket": "^11.3.0",
-    "agora-agents": "file:vendor/agora-agents-2.5.0.tgz",
+    "agora-agents": "2.8.0",
     "agora-token": "^2.0.5",
     "fastify": "^5.6.2",
     "fflate": "^0.8.3",

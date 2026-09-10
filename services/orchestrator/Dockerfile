@@ -1,7 +1,6 @@
 FROM node:22-slim AS build
 WORKDIR /app
 COPY services/orchestrator/package*.json ./
-COPY services/orchestrator/vendor ./vendor
 RUN npm ci
 COPY services/orchestrator/tsconfig.json ./
 COPY services/orchestrator/src ./src
@@ -12,7 +11,6 @@ FROM node:22-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY services/orchestrator/package*.json ./
-COPY services/orchestrator/vendor ./vendor
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 EXPOSE 8787

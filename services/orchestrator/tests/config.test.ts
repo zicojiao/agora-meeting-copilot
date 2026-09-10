@@ -11,7 +11,7 @@ const baseEnv = {
 };
 
 describe("orchestrator config", () => {
-  it("uses GPT Live preview without requiring a model slug", () => {
+  it("uses GPT Live without requiring a model environment variable", () => {
     const config = loadConfig(baseEnv);
     expect(config.OPENAI_GPT_LIVE_GREETING).toBeUndefined();
     expect(config).not.toHaveProperty("OPENAI_REALTIME_MODEL");
