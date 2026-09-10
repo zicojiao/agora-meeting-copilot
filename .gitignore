@@ -1,0 +1,21 @@
+node_modules
+.next
+out
+dist
+.env
+.env.local
+.env.*.local
+.vercel
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store
+*.tsbuildinfo
+test-results
+playwright-report
+.artifacts
+.superpowers
+
+# Internal design notes and demo scripts live in ../agora-meeting-copilot-doc.
+/docs/
