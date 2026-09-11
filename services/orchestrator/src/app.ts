@@ -10,6 +10,7 @@ import { MeetingArtifactsService } from "./meeting-artifacts-service.js";
 import { MeetingNotesService } from "./meeting-notes-service.js";
 import type { MeetingPublisher } from "./meeting-publisher.js";
 import { MeetingTranscriptionService } from "./meeting-transcription-service.js";
+import { OpenAiKeyStore } from "./openai-key-store.js";
 import { createInternalMeetingPublisher } from "./internal/feishu/create-internal-meeting-publisher.js";
 import { RoomService } from "./room-service.js";
 import { AgoraConvoAiRuntimeAdapter } from "./runtime/agora-convo-ai-runtime.js";
@@ -34,6 +35,7 @@ const copilotTurnSchema = z.object({
   createdAt: z.string().datetime().optional()
 });
 const agentInstructionSchema = z.object({ instruction: z.string().trim().min(1).max(1_000) });
+const agentStartSchema = z.object({ openAiApiKey: z.string().trim().min(20).max(512).optional() }).default({});
 
 const transcriptSegmentSchema = z.object({
   transcriptionSessionId: z.string().uuid(),
@@ -71,12 +73,12 @@ const kanbanUpdateSchema = z.object({
   position: z.number().finite().optional()
 });
 
-export type AppDependencies = { store?: Store; runtime?: VoiceRuntimeAdapter; transcriptionRuntime?: MeetingTranscriptionRuntime; notesRuntime?: MeetingNotesRuntime; gptLiveUpstreamFactory?: UpstreamFactory; publisher?: MeetingPublisher };
+export type AppDependencies = { store?: Store; runtime?: VoiceRuntimeAdapter; transcriptionRuntime?: MeetingTranscriptionRuntime; notesRuntime?: MeetingNotesRuntime; openAiKeys?: OpenAiKeyStore; gptLiveUpstreamFactory?: UpstreamFactory; publisher?: MeetingPublisher };
 
 export async function buildApp(config: Config, dependencies: AppDependencies = {}) {
   const app = Fastify({
     logger: config.NODE_ENV === "test" ? false : {
-      redact: ["req.headers.authorization", "req.body.hostSecret", "req.body.text", "req.body.query"],
+      redact: ["req.headers.authorization", "req.body.hostSecret", "req.body.openAiApiKey", "req.body.text", "req.body.query"],
       serializers: { req: requestForLog }
     },
     bodyLimit: 64 * 1024,
@@ -93,16 +95,18 @@ export async function buildApp(config: Config, dependencies: AppDependencies = {
   const store = dependencies.store ?? createStore(config);
   await store.init();
   const events = new EventBus(store);
+  const openAiKeys = dependencies.openAiKeys ?? new OpenAiKeyStore(config);
   const runtime = dependencies.runtime ?? new AgoraConvoAiRuntimeAdapter(config);
   const transcriptionRuntime = dependencies.transcriptionRuntime ?? new AgoraSttRuntime(config);
-  const notesRuntime = dependencies.notesRuntime ?? new OpenAIMeetingNotesRuntime(config);
+  const notesRuntime = dependencies.notesRuntime ?? new OpenAIMeetingNotesRuntime(config, openAiKeys);
   const notes = new MeetingNotesService(store, events, notesRuntime);
   const kanban = new KanbanService(store, events);
-  const gptLiveGateway = new GptLiveGateway(config, kanban, app.log, dependencies.gptLiveUpstreamFactory);
+  const gptLiveGateway = new GptLiveGateway(config, kanban, openAiKeys, app.log, dependencies.gptLiveUpstreamFactory);
   const transcription = new MeetingTranscriptionService(config, store, events, transcriptionRuntime, (segment) => notes.handleAcceptedSegment(segment.roomId));
   const artifacts = new MeetingArtifactsService(store);
   const publisher = dependencies.publisher ?? createInternalMeetingPublisher(config, store, events, artifacts, app.log);
-  const rooms = new RoomService(config, store, events, runtime, transcription, notes, kanban, publisher);
+  const rooms = new RoomService(config, store, events, runtime, transcription, notes, kanban, publisher, openAiKeys);
+  app.addHook("onClose", async () => openAiKeys.clear());
 
   app.get("/healthz", async () => ({ ok: true, service: "agora-meeting-copilot-orchestrator" }));
   app.get("/readyz", async (_request, reply) => {
@@ -112,6 +116,7 @@ export async function buildApp(config: Config, dependencies: AppDependencies = {
         ready: true,
         storage: config.STORAGE_DRIVER,
         voiceRuntime: "openai-gpt-live-1",
+        openAiKeyMode: config.OPENAI_KEY_MODE,
         kanbanCommands: "gpt-live-function-calling",
         transcription: config.agoraSttEnabled ? "configured" : "stt_not_configured",
         meetingPublisher: config.feishu ? "feishu" : "disabled"
@@ -257,7 +262,8 @@ export async function buildApp(config: Config, dependencies: AppDependencies = {
 
   app.post<{ Params: { roomId: string } }>("/rooms/:roomId/agent/start", async (request, reply) => {
     requireHost(authorize(request, config, request.params.roomId));
-    const room = await rooms.startAgent(request.params.roomId);
+    const { openAiApiKey } = agentStartSchema.parse(request.body);
+    const room = await rooms.startAgent(request.params.roomId, openAiApiKey);
     return reply.code(202).send({ status: room.agentStatus });
   });
 

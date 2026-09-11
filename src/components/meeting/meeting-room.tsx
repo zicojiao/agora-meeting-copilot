@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, BotOff, Copy, Link2, LoaderCircle, LogOut, PhoneOff, Share2, UsersRound } from "lucide-react";
+import { Bot, BotOff, Copy, ExternalLink, Eye, EyeOff, KeyRound, Link2, LoaderCircle, LogOut, PhoneOff, Share2, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { useMeetingTranscription } from "@/hooks/use-meeting-transcription";
 import { useParticipantSounds } from "@/hooks/use-participant-sounds";
 import { endMeetingForEveryone, leaveMeeting } from "@/lib/meeting-api";
 import { meetingPath } from "@/lib/meeting-routes";
+import { clearOpenAiSessionKey, isPlausibleOpenAiKey, readOpenAiSessionKey, saveOpenAiSessionKey } from "@/lib/openai-key-session";
 import { resolveParticipantProfile } from "@/lib/participant-profile";
 import { copilotName, copilotWakeWord } from "@/lib/product";
 import { buildUnifiedTranscriptEntries, transcriptEntryKey, type UnifiedTranscriptEntry, withoutLocallyClearedTranscriptEntries } from "@/lib/unified-transcript";
@@ -56,6 +57,9 @@ export function MeetingRoom({ config, onEnded, onLeave }: { config: JoinConfig; 
   const [interruptingCopilot, setInterruptingCopilot] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [removingCopilot, setRemovingCopilot] = useState(false);
+  const [invitingCopilot, setInvitingCopilot] = useState(false);
+  const [openAiApiKey, setOpenAiApiKey] = useState("");
+  const [showOpenAiApiKey, setShowOpenAiApiKey] = useState(false);
   const [roomLink, setRoomLink] = useState("");
   const [selectedSegmentId, setSelectedSegmentId] = useState<string>();
   const [clearedTranscriptEntryKeys, setClearedTranscriptEntryKeys] = useState<ReadonlySet<string>>(() => new Set());
@@ -104,6 +108,7 @@ export function MeetingRoom({ config, onEnded, onLeave }: { config: JoinConfig; 
     if (endedRef.current) return;
     endedRef.current = true;
     disarmExitGuard();
+    clearOpenAiSessionKey(config.roomId);
     onEnded(config.roomId);
   }, [config.roomId, disarmExitGuard, onEnded]);
 
@@ -166,12 +171,33 @@ export function MeetingRoom({ config, onEnded, onLeave }: { config: JoinConfig; 
 
   const requestCopilotInvite = () => {
     if (!isHost || aiPresent) return;
+    setOpenAiApiKey(readOpenAiSessionKey(config.roomId));
+    setShowOpenAiApiKey(false);
     setCopilotConsentOpen(true);
   };
 
-  const confirmCopilotInvite = () => {
+  const confirmCopilotInvite = async () => {
+    if (invitingCopilot) return;
+    const byok = session.openAiKeyMode !== "server";
+    if (byok && !isPlausibleOpenAiKey(openAiApiKey)) return;
+    setInvitingCopilot(true);
+    try {
+      await copilot.start(byok ? openAiApiKey.trim() : undefined);
+      if (byok) saveOpenAiSessionKey(config.roomId, openAiApiKey);
+      setOpenAiApiKey("");
+      setCopilotConsentOpen(false);
+    } catch {
+      // The Copilot hook presents a sanitized request error through the shared toast flow.
+    } finally {
+      setInvitingCopilot(false);
+    }
+  };
+
+  const cancelCopilotInvite = () => {
+    if (invitingCopilot) return;
+    setOpenAiApiKey("");
+    setShowOpenAiApiKey(false);
     setCopilotConsentOpen(false);
-    void copilot.start().catch(() => undefined);
   };
 
   const confirmCopilotRemoval = async () => {
@@ -211,6 +237,7 @@ export function MeetingRoom({ config, onEnded, onLeave }: { config: JoinConfig; 
     setLeaving(true);
     disarmExitGuard();
     await leaveMeeting(config.roomId, session.capability).catch(() => undefined);
+    clearOpenAiSessionKey(config.roomId);
     onLeave();
   };
 
@@ -218,6 +245,7 @@ export function MeetingRoom({ config, onEnded, onLeave }: { config: JoinConfig; 
     setEnding(true);
     try {
       await endMeetingForEveryone(config.roomId, session.capability);
+      clearOpenAiSessionKey(config.roomId);
       setLeaveDialogOpen(false);
       notifyEnded();
     } catch (caught) {
@@ -371,18 +399,51 @@ export function MeetingRoom({ config, onEnded, onLeave }: { config: JoinConfig; 
       ) : null}
 
       {copilotConsentOpen ? (
-        <DialogBackdrop>
-          <DialogSurface aria-labelledby="ai-consent-title" aria-modal="true" role="dialog">
+        <DialogBackdrop onClick={(event) => { if (event.target === event.currentTarget) cancelCopilotInvite(); }}>
+          <DialogSurface aria-labelledby="ai-consent-title" aria-modal="true" className="max-h-[92dvh] overflow-y-auto" role="dialog">
             <div className="mb-4 flex size-11 items-center justify-center rounded-[3px] border border-agora/30 bg-agora/10 text-agora"><Bot size={22} aria-hidden="true" /></div>
             <div>
               <span className="font-mono text-[9px] font-bold uppercase text-agora">Meeting participant</span>
               <h2 className="mt-1 text-2xl font-semibold" id="ai-consent-title">Invite {copilotName}?</h2>
               <p className="mt-2 text-sm leading-relaxed text-meeting-soft">{copilotName} joins as a visible teammate. Anyone can say “{copilotWakeWord}” to ask a question, request a recap, or assign an action.</p>
             </div>
+            {session.openAiKeyMode !== "server" ? (
+              <div className="mt-5">
+                <label className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-meeting-muted" htmlFor="openai-api-key">Your OpenAI API key</label>
+                <div className="mt-2 flex items-center rounded-[3px] border border-line-strong bg-room-deep focus-within:border-agora/70 focus-within:ring-2 focus-within:ring-agora/20">
+                  <KeyRound className="ml-3 shrink-0 text-meeting-muted" size={15} aria-hidden="true" />
+                  <input
+                    autoComplete="off"
+                    autoFocus
+                    className="min-w-0 flex-1 bg-transparent px-2.5 py-3 font-mono text-xs text-meeting outline-none placeholder:text-meeting-faint"
+                    id="openai-api-key"
+                    onChange={(event) => setOpenAiApiKey(event.target.value)}
+                    placeholder="sk-…"
+                    spellCheck={false}
+                    type={showOpenAiApiKey ? "text" : "password"}
+                    value={openAiApiKey}
+                  />
+                  <Button
+                    aria-label={showOpenAiApiKey ? "Hide OpenAI API key" : "Show OpenAI API key"}
+                    onClick={() => setShowOpenAiApiKey((visible) => !visible)}
+                    size="icon-sm"
+                    title={showOpenAiApiKey ? "Hide API key" : "Show API key"}
+                    type="button"
+                    variant="ghost"
+                  >{showOpenAiApiKey ? <EyeOff size={15} /> : <Eye size={15} />}</Button>
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-meeting-muted">Saved only in this browser tab. It is sent securely when the AI teammate starts, held temporarily in server memory, and never written to the database or logs.</p>
+                <div className="mt-2 flex items-center justify-between gap-3 text-[11px]">
+                  <a className="inline-flex items-center gap-1 text-agora hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-agora" href="https://platform.openai.com/api-keys" rel="noreferrer" target="_blank">Create or manage keys <ExternalLink size={11} /></a>
+                  {readOpenAiSessionKey(config.roomId) ? <button className="text-meeting-muted hover:text-meeting focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-agora" onClick={() => { clearOpenAiSessionKey(config.roomId); setOpenAiApiKey(""); }} type="button">Clear saved key</button> : null}
+                </div>
+                <p className="mt-3 rounded-[3px] border border-warning/25 bg-warning/5 px-3 py-2 text-[11px] leading-relaxed text-meeting-soft">OpenAI usage is billed to the account that owns this key.</p>
+              </div>
+            ) : null}
             <div className="mt-5 flex items-center gap-2 border-t border-line pt-4 text-xs text-meeting-muted"><i className="size-1.5 rounded-full bg-presence" />Visible to everyone in this meeting</div>
             <div className="mt-5 grid grid-cols-2 gap-2">
-              <Button autoFocus onClick={() => setCopilotConsentOpen(false)} variant="secondary">Cancel</Button>
-              <Button onClick={confirmCopilotInvite} variant="primary"><Bot size={15} />Invite {copilotName}</Button>
+              <Button disabled={invitingCopilot} onClick={cancelCopilotInvite} variant="secondary">Cancel</Button>
+              <Button disabled={invitingCopilot || (session.openAiKeyMode !== "server" && !isPlausibleOpenAiKey(openAiApiKey))} onClick={() => void confirmCopilotInvite()} variant="primary">{invitingCopilot ? <LoaderCircle className="animate-spin" size={15} /> : <Bot size={15} />}{invitingCopilot ? "Inviting…" : `Invite ${copilotName}`}</Button>
             </div>
           </DialogSurface>
         </DialogBackdrop>

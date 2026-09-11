@@ -3,6 +3,7 @@ import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 import type { Config } from "../config.js";
 import type { MeetingNotesDocument, MeetingTranscriptSegment } from "../domain.js";
+import type { OpenAiKeyStore } from "../openai-key-store.js";
 
 const evidenceSchema = z.object({
   segmentId: z.string(),
@@ -31,28 +32,25 @@ const notesSchema = z.object({
 type ParsedNotes = z.infer<typeof notesSchema>;
 
 export interface MeetingNotesRuntime {
-  generate(kind: "live" | "final", segments: MeetingTranscriptSegment[]): Promise<MeetingNotesDocument>;
+  generate(roomId: string, kind: "live" | "final", segments: MeetingTranscriptSegment[]): Promise<MeetingNotesDocument>;
 }
 
 export class OpenAIMeetingNotesRuntime implements MeetingNotesRuntime {
-  private client: OpenAI;
+  constructor(private config: Config, private openAiKeys: OpenAiKeyStore) {}
 
-  constructor(private config: Config) {
-    this.client = new OpenAI({ apiKey: config.OPENAI_API_KEY });
-  }
-
-  async generate(kind: "live" | "final", segments: MeetingTranscriptSegment[]) {
+  async generate(roomId: string, kind: "live" | "final", segments: MeetingTranscriptSegment[]) {
     if (!segments.length) return emptyNotes();
+    const client = new OpenAI({ apiKey: this.openAiKeys.require(roomId) });
     const chunks = chunkSegments(segments, 36_000);
-    if (chunks.length === 1) return this.summarize(kind, renderTranscript(chunks[0]), false, chunks[0]);
+    if (chunks.length === 1) return this.summarize(client, kind, renderTranscript(chunks[0]), false, chunks[0]);
 
     const partials: MeetingNotesDocument[] = [];
-    for (const chunk of chunks) partials.push(await this.summarize("live", renderTranscript(chunk), false, chunk));
-    return this.summarize(kind, JSON.stringify(partials), true, segments);
+    for (const chunk of chunks) partials.push(await this.summarize(client, "live", renderTranscript(chunk), false, chunk));
+    return this.summarize(client, kind, JSON.stringify(partials), true, segments);
   }
 
-  private async summarize(kind: "live" | "final", source: string, reducing: boolean, allowedSegments: MeetingTranscriptSegment[]) {
-    const response = await this.client.responses.parse({
+  private async summarize(client: OpenAI, kind: "live" | "final", source: string, reducing: boolean, allowedSegments: MeetingTranscriptSegment[]) {
+    const response = await client.responses.parse({
       model: this.config.OPENAI_ANALYSIS_MODEL,
       input: [
         {
@@ -72,7 +70,7 @@ export class OpenAIMeetingNotesRuntime implements MeetingNotesRuntime {
 }
 
 export class NoopMeetingNotesRuntime implements MeetingNotesRuntime {
-  async generate(_kind: "live" | "final", segments: MeetingTranscriptSegment[]) {
+  async generate(_roomId: string, _kind: "live" | "final", segments: MeetingTranscriptSegment[]) {
     return segments.length ? {
       ...emptyNotes(),
       title: "Meeting summary",

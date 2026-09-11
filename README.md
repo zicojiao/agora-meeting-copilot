@@ -94,10 +94,10 @@ The Fastify orchestrator owns every privileged operation: it creates rooms, gene
 - Agora RTC and Signaling enabled for that project
 - Access to Agora Conversational AI
 - Agora REST credentials if you want server-side Real-Time Speech-to-Text
-- An OpenAI API key with access to the GPT-Live-1 configuration used by this demo
+- Hosts who invite the AI teammate need an OpenAI API key with GPT-Live-1 access
 - PostgreSQL for persistent production storage (local development can use memory storage)
 
-> Before deploying, enable Agora Conversational AI for your Agora project and use an OpenAI API key with access to GPT-Live-1.
+> The public deployment uses BYOK by default. A host enters an OpenAI API key when inviting the AI teammate; the key is retained only in that browser tab and transient server memory.
 
 ## Agora Configuration
 
@@ -205,7 +205,9 @@ AGORA_STT_PUBLISHER_UID=900003
 AGORA_STT_LANGUAGES=en-US
 AGORA_STT_MAX_IDLE_SECONDS=3600
 
-# OpenAI credentials and model settings — server-side only.
+# Public deployments should keep BYOK. Self-hosters can opt into server mode.
+OPENAI_KEY_MODE=byok
+# Required only when OPENAI_KEY_MODE=server; never expose it to the browser.
 OPENAI_API_KEY=
 OPENAI_GPT_LIVE_GREETING=
 OPENAI_GPT_LIVE_DELEGATION_MODEL=gpt-5.5
@@ -215,7 +217,7 @@ ROOM_TTL_HOURS=24
 INSIGHT_COOLDOWN_SECONDS=90
 ```
 
-The orchestrator validates required values on startup. `AGORA_CUSTOMER_ID` and `AGORA_CUSTOMER_SECRET` must either both be configured or both be blank.
+The orchestrator validates required values on startup. `AGORA_CUSTOMER_ID` and `AGORA_CUSTOMER_SECRET` must either both be configured or both be blank. In `byok` mode, the host supplies the OpenAI key in the Invite Copilot dialog. It is never persisted by the server. Set `OPENAI_KEY_MODE=server` only for a trusted self-hosted deployment; that mode requires `OPENAI_API_KEY`.
 
 ### 4. Start the app
 
@@ -242,7 +244,7 @@ Open [http://localhost:3000](http://localhost:3000), create a meeting, and share
 1. The host creates a room through the orchestrator.
 2. Each participant receives short-lived RTC and RTM credentials and joins the same room.
 3. The first browser starts Agora Real-Time Speech-to-Text when REST credentials are configured.
-4. The host can invite the AI teammate, which joins as RTC UID `900001`.
+4. The host supplies an OpenAI key and can invite the AI teammate, which joins as RTC UID `900001`.
 5. Every AI response requires a fresh direct wake phrase at the start of the user's turn.
 6. The AI can answer in the meeting or call approved board tools. The orchestrator validates and executes each action before returning the result to the model.
 7. Ending the meeting creates `meeting-transcript.md`, `meeting-notes.md`, and a ZIP containing both files.

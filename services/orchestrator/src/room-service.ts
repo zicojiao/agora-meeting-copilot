@@ -8,6 +8,7 @@ import type { KanbanService } from "./kanban-service.js";
 import type { MeetingNotesService } from "./meeting-notes-service.js";
 import type { MeetingPublisher } from "./meeting-publisher.js";
 import type { MeetingTranscriptionService } from "./meeting-transcription-service.js";
+import type { OpenAiKeyStore } from "./openai-key-store.js";
 import { decideConversationMode } from "./policy.js";
 import { COPILOT_NAME } from "./product.js";
 import type { VoiceRuntimeAdapter } from "./runtime/voice-runtime.js";
@@ -26,6 +27,7 @@ export type JoinRoomResult = {
   rtcToken: string;
   rtmToken: string;
   expiresAt: number;
+  openAiKeyMode: "byok" | "server";
 };
 
 export class RoomService {
@@ -42,7 +44,8 @@ export class RoomService {
     private transcription: MeetingTranscriptionService,
     private notes: MeetingNotesService,
     private kanban: KanbanService,
-    private publisher: MeetingPublisher
+    private publisher: MeetingPublisher,
+    private openAiKeys: OpenAiKeyStore
   ) {}
 
   async createRoom() {
@@ -86,7 +89,8 @@ export class RoomService {
       rtcUid,
       rtcToken: RtcTokenBuilder.buildTokenWithUid(this.config.AGORA_APP_ID, this.config.AGORA_APP_CERTIFICATE, roomId, rtcUid, RtcRole.PUBLISHER, expiresIn, expiresIn),
       rtmToken: RtmTokenBuilder.buildToken(this.config.AGORA_APP_ID, this.config.AGORA_APP_CERTIFICATE, String(rtcUid), expiresIn),
-      expiresAt: Math.floor(Date.now() / 1000) + expiresIn
+      expiresAt: Math.floor(Date.now() / 1000) + expiresIn,
+      openAiKeyMode: this.config.OPENAI_KEY_MODE
     };
   }
 
@@ -149,6 +153,7 @@ export class RoomService {
     this.clearIdleEndTimer(roomId);
     if (room.status === "ended") {
       const snapshot = await this.snapshot(roomId);
+      this.openAiKeys.delete(roomId);
       this.schedulePublication(roomId);
       return snapshot;
     }
@@ -179,6 +184,7 @@ export class RoomService {
     await this.store.updateRoom(room);
     await this.events.publish(roomId, "meeting.ended", { room: publicRoom(room), finalNotes });
     const snapshot = await this.snapshot(roomId);
+    this.openAiKeys.delete(roomId);
     this.schedulePublication(roomId);
     return snapshot;
   }
@@ -204,17 +210,21 @@ export class RoomService {
     }
   }
 
-  startAgent(roomId: string) {
+  startAgent(roomId: string, openAiApiKey?: string) {
     const existing = this.startLocks.get(roomId);
     if (existing) return existing;
-    const operation = this.doStartAgent(roomId).finally(() => this.startLocks.delete(roomId));
+    const operation = this.doStartAgent(roomId, openAiApiKey).finally(() => this.startLocks.delete(roomId));
     this.startLocks.set(roomId, operation);
     return operation;
   }
 
-  private async doStartAgent(roomId: string) {
+  private async doStartAgent(roomId: string, openAiApiKey?: string) {
     const room = await this.requireOpenRoom(roomId);
     if (room.agentId && room.agentStatus !== "error" && room.agentStatus !== "offline") return room;
+    if (this.config.OPENAI_KEY_MODE === "byok") {
+      if (!openAiApiKey) throw Object.assign(new Error("Enter your OpenAI API key to invite the AI teammate"), { statusCode: 400 });
+      this.openAiKeys.set(roomId, openAiApiKey);
+    }
     room.agentStatus = "joining";
     room.lastError = undefined;
     await this.saveRoom(room, "agent.status", { status: room.agentStatus });
@@ -229,6 +239,7 @@ export class RoomService {
       await this.saveRoom(room, "agent.status", { status: room.agentStatus, agentUid: "900001" });
       return room;
     } catch (error) {
+      this.openAiKeys.delete(roomId);
       room.agentStatus = "error";
       room.lastError = error instanceof Error ? error.message : String(error);
       await this.saveRoom(room, "agent.status", { status: room.agentStatus, error: room.lastError });
@@ -238,7 +249,11 @@ export class RoomService {
 
   async stopAgent(roomId: string) {
     const room = await this.requireRoom(roomId);
-    await this.runtime.stop(roomId, room.agentId);
+    try {
+      await this.runtime.stop(roomId, room.agentId);
+    } finally {
+      this.openAiKeys.delete(roomId);
+    }
     this.clearFocusTimer(roomId);
     room.agentId = undefined;
     room.agentStatus = "offline";

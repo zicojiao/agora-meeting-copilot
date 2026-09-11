@@ -13,6 +13,7 @@ export type RoomSession = {
   rtcToken: string;
   rtmToken: string;
   expiresAt: number;
+  openAiKeyMode: "byok" | "server";
 };
 
 export type RoomParticipant = {
@@ -207,8 +208,12 @@ export async function issueMediaToken(roomId: string, capability: string) {
   return request<{ appId: string; channel: string; uid: number; token: string; expiresAt: number }>(`/rooms/${encodeURIComponent(roomId)}/media-token`, { method: "POST", headers: auth(capability) });
 }
 
-export async function startCopilot(roomId: string, capability: string) {
-  return request(`/rooms/${encodeURIComponent(roomId)}/agent/start`, { method: "POST", headers: auth(capability) });
+export async function startCopilot(roomId: string, capability: string, openAiApiKey?: string) {
+  return request(`/rooms/${encodeURIComponent(roomId)}/agent/start`, {
+    method: "POST",
+    headers: auth(capability),
+    body: JSON.stringify(openAiApiKey ? { openAiApiKey } : {})
+  });
 }
 
 export async function stopCopilot(roomId: string, capability: string) {

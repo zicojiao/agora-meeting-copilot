@@ -94,10 +94,10 @@ Fastify orchestrator 负责所有敏感和高权限操作：创建房间、生�
 - 该项目已启用 Agora RTC 和信令服务
 - 已获得 Agora Conversational AI 使用权限
 - 如需服务端实时语音转写，需要 Agora REST Customer ID / Customer Secret
-- 一个能使用此 Demo 所需 GPT-Live-1 配置的 OpenAI API Key
+- 邀请 AI 队友的主持人需要一个能够访问 GPT-Live-1 的 OpenAI API Key
 - 生产环境使用 PostgreSQL；本地可以使用内存存储
 
-> 部署前，请为 Agora 项目启用 Conversational AI，并使用能够访问 GPT-Live-1 的 OpenAI API Key。
+> 公开部署默认使用 BYOK。主持人在邀请 AI 队友时输入自己的 OpenAI API Key；Key 只保存在当前浏览器标签页和服务端临时内存中。
 
 ## Agora 配置
 
@@ -205,7 +205,9 @@ AGORA_STT_PUBLISHER_UID=900003
 AGORA_STT_LANGUAGES=en-US
 AGORA_STT_MAX_IDLE_SECONDS=3600
 
-# OpenAI 凭证与模型配置——仅服务端使用。
+# 公开部署应保持 BYOK；自托管环境可以显式改为 server。
+OPENAI_KEY_MODE=byok
+# 仅在 OPENAI_KEY_MODE=server 时必填；绝不能暴露给浏览器。
 OPENAI_API_KEY=
 OPENAI_GPT_LIVE_GREETING=
 OPENAI_GPT_LIVE_DELEGATION_MODEL=gpt-5.5
@@ -215,7 +217,7 @@ ROOM_TTL_HOURS=24
 INSIGHT_COOLDOWN_SECONDS=90
 ```
 
-Orchestrator 启动时会校验所有必需变量。`AGORA_CUSTOMER_ID` 和 `AGORA_CUSTOMER_SECRET` 必须同时配置，或者同时留空。
+Orchestrator 启动时会校验所有必需变量。`AGORA_CUSTOMER_ID` 和 `AGORA_CUSTOMER_SECRET` 必须同时配置，或者同时留空。在 `byok` 模式下，主持人会在 Invite Copilot 对话框中提供 OpenAI Key，服务端不会持久化它。只有可信的自托管环境才应设置 `OPENAI_KEY_MODE=server`，此模式同时要求配置 `OPENAI_API_KEY`。
 
 ### 4. 启动应用
 
@@ -242,7 +244,7 @@ npm run dev
 1. 主持人通过 orchestrator 创建房间。
 2. 每位参会者获得短期 RTC 和 RTM 凭证并加入同一个房间。
 3. 配置 REST 凭证后，第一个浏览器参与者会启动 Agora 实时语音转写。
-4. 主持人可以邀请 AI 队友，它会以 RTC UID `900001` 加入。
+4. 主持人提供自己的 OpenAI Key 后可以邀请 AI 队友，它会以 RTC UID `900001` 加入。
 5. 每次 AI 回答都需要用户在当前发言开头重新说出直接唤醒词。
 6. AI 可以在会议中回答，或者调用被允许的看板工具。Orchestrator 会校验并执行操作，再把结果返回给模型。
 7. 结束会议后生成 `meeting-transcript.md`、`meeting-notes.md`，以及包含这两个文件的 ZIP。

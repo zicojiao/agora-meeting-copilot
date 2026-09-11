@@ -3,6 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 import WebSocket, { type Data } from "ws";
 import type { Config } from "../config.js";
 import type { KanbanService } from "../kanban-service.js";
+import type { OpenAiKeyStore } from "../openai-key-store.js";
 import { buildGptLiveDelegation, parseGptLiveBoardFunction } from "./gpt-live-tools.js";
 
 export const GPT_LIVE_MODEL = "gpt-live-1";
@@ -37,6 +38,7 @@ export class GptLiveGateway {
   constructor(
     private config: Config,
     private kanban: KanbanService,
+    private openAiKeys: OpenAiKeyStore,
     private log: FastifyBaseLogger,
     private upstreamFactory: UpstreamFactory = (url, options) => new WebSocket(url, options)
   ) {}
@@ -48,8 +50,15 @@ export class GptLiveGateway {
       return;
     }
 
+    let openAiApiKey: string;
+    try {
+      openAiApiKey = this.openAiKeys.require(roomId);
+    } catch {
+      downstream.close(1008, "GPT Live authorization is unavailable");
+      return;
+    }
     const upstream = this.upstreamFactory(OPENAI_LIVE_URL, {
-      headers: { Authorization: `Bearer ${this.config.OPENAI_API_KEY}` }
+      headers: { Authorization: `Bearer ${openAiApiKey}` }
     });
     const pending: Array<{ data: Data; isBinary: boolean }> = [];
     const functionCallsByItemId = new Map<string, { call_id: string; name: string }>();

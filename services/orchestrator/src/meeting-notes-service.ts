@@ -107,14 +107,14 @@ export class MeetingNotesService {
     await this.events.publish(roomId, `notes.${kind}.status`, { notes: await this.getLatest(roomId, kind) ?? version });
 
     try {
-      version.document = await this.runtime.generate(kind, segments);
+      version.document = await this.runtime.generate(roomId, kind, segments);
       version.status = "completed";
       version.updatedAt = new Date().toISOString();
       await this.store.updateMeetingNoteVersion(version);
       await this.events.publish(roomId, `notes.${kind}.completed`, { notes: version });
     } catch (error) {
       version.status = "failed";
-      version.error = error instanceof Error ? error.message : String(error);
+      version.error = safeNotesError(error);
       version.updatedAt = new Date().toISOString();
       await this.store.updateMeetingNoteVersion(version);
       await this.events.publish(roomId, `notes.${kind}.status`, { notes: await this.getLatest(roomId, kind) ?? version });
@@ -142,4 +142,10 @@ export class MeetingNotesService {
     if (job.timer) clearTimeout(job.timer);
     job.timer = undefined;
   }
+}
+
+function safeNotesError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/OpenAI API key is required/i.test(message)) return "Invite the AI teammate with an OpenAI API key to enable AI notes";
+  return "AI notes could not be generated";
 }

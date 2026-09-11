@@ -10,6 +10,7 @@ import { normalizeCumulativeTranscript, parseCopilotTurn, parseToolkitCopilotTur
 import { removeLiveTranscript, shouldStartMeetingTranscription, shouldUseAgoraSttSegment, upsertLiveTranscript, type PartialTranscriptSegment } from "../src/hooks/use-meeting-transcription";
 import { MessageType, TurnStatus } from "agora-agent-client-toolkit";
 import { shouldSilenceCopilotTurnSubmissionError } from "../src/lib/copilot-errors";
+import { isPlausibleOpenAiKey } from "../src/lib/openai-key-session";
 
 const viewports = [
   { name: "desktop", width: 1440, height: 1000 },
@@ -91,6 +92,12 @@ test("expected cross-participant voice turn rejections stay silent", () => {
   expect(shouldSilenceCopilotTurnSubmissionError(new Error("A participant can submit only their own voice turn"))).toBe(true);
   expect(shouldSilenceCopilotTurnSubmissionError(new Error("Copilot is unavailable"))).toBe(false);
   expect(shouldSilenceCopilotTurnSubmissionError("A participant can submit only their own voice turn")).toBe(false);
+});
+
+test("OpenAI BYOK validation accepts secrets without exposing provider-specific prefixes", () => {
+  expect(isPlausibleOpenAiKey("sk-test-user-key-long-enough")).toBe(true);
+  expect(isPlausibleOpenAiKey("short")).toBe(false);
+  expect(isPlausibleOpenAiKey("sk-test key with spaces")).toBe(false);
 });
 
 test("Agora STT starts lazily only after captions are enabled", () => {
@@ -494,6 +501,10 @@ test("prejoin remains reachable on portrait and short landscape screens", async 
 test("user can manage the AI member, use the inline board, and open the full board separately", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await enterMeetingWithMediaOff(page);
+  const startBodies: unknown[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/agent/start")) startBodies.push(request.postDataJSON());
+  });
 
   const toolbar = page.getByRole("toolbar", { name: "Meeting controls" });
   await expect(toolbar).toBeVisible();
@@ -510,10 +521,17 @@ test("user can manage the AI member, use the inline board, and open the full boa
   await page.getByRole("menuitem", { name: "React 👍" }).click();
   await expect(page.getByLabel("Meeting reactions")).toContainText("Zico");
   await page.getByRole("button", { name: "Invite Copilot" }).click();
-  const consent = page.getByRole("dialog", { name: "Invite Copilot?" });
-  await expect(consent).toBeVisible();
-  await expect(consent.getByText("Anyone can say “Copilot”")).toBeVisible();
-  await consent.getByRole("button", { name: "Invite Copilot" }).click();
+    const consent = page.getByRole("dialog", { name: "Invite Copilot?" });
+    await expect(consent).toBeVisible();
+    await expect(consent.getByText("Anyone can say “Copilot”")).toBeVisible();
+    const keyInput = consent.getByLabel("Your OpenAI API key");
+    await expect(consent.getByRole("button", { name: "Invite Copilot" })).toBeDisabled();
+    await keyInput.fill("sk-playwright-user-key-long-enough");
+    await consent.getByRole("button", { name: "Show OpenAI API key" }).click();
+    await expect(keyInput).toHaveAttribute("type", "text");
+    await consent.getByRole("button", { name: "Invite Copilot" }).click();
+  expect(startBodies).toEqual([{ openAiApiKey: "sk-playwright-user-key-long-enough" }]);
+  await expect.poll(() => page.evaluate(() => window.sessionStorage.getItem("agora-meeting:openai-api-key:meet-playwright"))).toBe("sk-playwright-user-key-long-enough");
   await expect(page.getByTestId("copilot-status")).toHaveText("Listening");
   await expect(page.getByTestId("copilot-engine-label")).toHaveText("Powered by GPT‑Live‑1 API");
   await expect(page.getByTestId("copilot-engine-label")).toHaveCSS("font-size", "11px");
@@ -586,6 +604,13 @@ test("user can manage the AI member, use the inline board, and open the full boa
   await page.getByRole("menuitem", { name: "Remove from meeting" }).click();
   await page.getByRole("dialog", { name: "Remove Copilot?" }).getByRole("button", { name: "Remove Copilot" }).click();
   await expect(page.getByRole("button", { name: "Invite Copilot" })).toBeVisible();
+  await page.getByRole("button", { name: "Invite Copilot" }).click();
+  const reinviteDialog = page.getByRole("dialog", { name: "Invite Copilot?" });
+  await expect(reinviteDialog.getByLabel("Your OpenAI API key")).toHaveValue("sk-playwright-user-key-long-enough");
+  await reinviteDialog.getByRole("button", { name: "Clear saved key" }).click();
+  await expect(reinviteDialog.getByLabel("Your OpenAI API key")).toHaveValue("");
+  await expect(reinviteDialog.getByRole("button", { name: "Invite Copilot" })).toBeDisabled();
+  await reinviteDialog.getByRole("button", { name: "Cancel" }).click();
   for (const retiredControl of ["Ask Copilot", "Explain", "Recap", "Actions", "Speak", "Dismiss"]) {
     await expect(page.getByRole("button", { name: retiredControl, exact: true })).toHaveCount(0);
   }
@@ -673,7 +698,9 @@ test("meeting operation feedback uses compact Sonner notifications", async ({ pa
     });
   });
   await page.getByRole("button", { name: "Invite Copilot" }).click();
-  await page.getByRole("dialog", { name: "Invite Copilot?" }).getByRole("button", { name: "Invite Copilot" }).click();
+  const byokDialog = page.getByRole("dialog", { name: "Invite Copilot?" });
+  await byokDialog.getByLabel("Your OpenAI API key").fill("sk-playwright-user-key-long-enough");
+  await byokDialog.getByRole("button", { name: "Invite Copilot" }).click();
 
   const errorToast = page.locator("[data-sonner-toast]").filter({ hasText: "Copilot is unavailable right now." });
   await expect(errorToast).toBeVisible();
@@ -763,6 +790,8 @@ test("meeting room and information sheet fit portrait and landscape mobile", asy
     await toolbar.getByRole("button", { name: "Invite Copilot" }).click();
     const consent = page.getByRole("dialog", { name: "Invite Copilot?" });
     await expect(consent).toBeVisible();
+    await consent.getByLabel("Your OpenAI API key").fill("sk-playwright-mobile-key-long-enough");
+    await assertInsideViewport(page, consent, `${viewport.name} BYOK dialog`);
     await consent.getByRole("button", { name: "Invite Copilot" }).click();
     await expect(page.getByTestId("copilot-status")).toHaveText("Listening");
     await toolbar.getByRole("button", { name: "More" }).click();
@@ -784,6 +813,7 @@ test("meeting room and information sheet fit portrait and landscape mobile", asy
 test("host can end the room and download the meeting record", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await enterMeetingWithMediaOff(page);
+  await page.evaluate(() => window.sessionStorage.setItem("agora-meeting:openai-api-key:meet-playwright", "sk-temporary-browser-key"));
   await page.getByRole("button", { name: "Invite Copilot" }).click();
   await page.getByRole("dialog", { name: "Invite Copilot?" }).getByRole("button", { name: "Invite Copilot" }).click();
   await expect(page.getByTestId("copilot-status")).toHaveText("Listening");
@@ -818,6 +848,7 @@ test("host can end the room and download the meeting record", async ({ page }) =
   await expect(page.getByText("Launch planning", { exact: true })).toBeVisible();
   await expect(page.getByText("Launch plan confirmed.", { exact: true })).toBeVisible();
   await expect(page.getByText("Copilot", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.sessionStorage.getItem("agora-meeting:openai-api-key:meet-playwright"))).toBeNull();
   await expect(page.getByText("Ship the validated launch plan.", { exact: true })).toBeVisible();
 
   const downloadUrl = await downloadAllLink.getAttribute("href");

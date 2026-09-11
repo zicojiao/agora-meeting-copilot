@@ -50,7 +50,7 @@ const server = createServer(async (request, response) => {
     const role = body.hostSecret === "playwright-host" ? "host" : "guest";
     const rtcUid = 100000 + participants.length + 1;
     participants.push({ roomId: room.id, rtcUid: String(rtcUid), displayName: body.displayName, role, joinedAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() });
-    return json(response, 201, { capability: `${role}-capability`, role, appId: "a".repeat(32), channel: room.id, rtcUid, rtcToken: "invalid-test-token", rtmToken: "invalid-test-token", expiresAt: Math.floor(Date.now() / 1000) + 3600 });
+    return json(response, 201, { capability: `${role}-capability`, role, appId: "a".repeat(32), channel: room.id, rtcUid, rtcToken: "invalid-test-token", rtmToken: "invalid-test-token", expiresAt: Math.floor(Date.now() / 1000) + 3600, openAiKeyMode: "byok" });
   }
   if (request.method === "POST" && url.pathname.endsWith("/participants/leave")) {
     const role = String(request.headers.authorization || "").includes("host-capability") ? "host" : "guest";

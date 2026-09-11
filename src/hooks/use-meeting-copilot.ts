@@ -221,7 +221,7 @@ export function useMeetingCopilot({
         room: { ...current.room, agentStatus: result.status }
       } : current);
     }),
-    start: () => run(() => startCopilot(roomId, session.capability)),
+    start: (openAiApiKey?: string) => run(() => startCopilot(roomId, session.capability, openAiApiKey)),
     stop: () => run(() => stopCopilot(roomId, session.capability))
   };
 }

@@ -21,7 +21,8 @@ const schema = z.object({
   AGORA_STT_PUBLISHER_UID: z.string().regex(/^\d+$/).default("900003"),
   AGORA_STT_LANGUAGES: z.string().default("en-US"),
   AGORA_STT_MAX_IDLE_SECONDS: z.coerce.number().int().min(5).max(2_592_000).default(3600),
-  OPENAI_API_KEY: z.string().min(20),
+  OPENAI_KEY_MODE: z.enum(["byok", "server"]).default("byok"),
+  OPENAI_API_KEY: optionalSecret,
   OPENAI_GPT_LIVE_GREETING: optionalSecret,
   OPENAI_GPT_LIVE_DELEGATION_MODEL: z.string().default("gpt-5.5"),
   GPT_LIVE_PROXY_PUBLIC_URL: z.string().url().optional(),
@@ -51,6 +52,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   }
   if (Boolean(value.AGORA_CUSTOMER_ID) !== Boolean(value.AGORA_CUSTOMER_SECRET)) {
     throw new Error("AGORA_CUSTOMER_ID and AGORA_CUSTOMER_SECRET must be configured together");
+  }
+  if (value.OPENAI_KEY_MODE === "server" && !value.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is required when OPENAI_KEY_MODE=server");
   }
   const feishuValues = [
     value.FEISHU_APP_ID,

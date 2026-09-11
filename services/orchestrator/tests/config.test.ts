@@ -13,8 +13,14 @@ const baseEnv = {
 describe("orchestrator config", () => {
   it("uses GPT Live without requiring a model environment variable", () => {
     const config = loadConfig(baseEnv);
+    expect(config.OPENAI_KEY_MODE).toBe("byok");
     expect(config.OPENAI_GPT_LIVE_GREETING).toBeUndefined();
     expect(config).not.toHaveProperty("OPENAI_REALTIME_MODEL");
+  });
+
+  it("requires an environment key only in explicit server mode", () => {
+    expect(() => loadConfig({ ...baseEnv, OPENAI_KEY_MODE: "server", OPENAI_API_KEY: "" })).toThrow("OPENAI_API_KEY is required");
+    expect(loadConfig({ ...baseEnv, OPENAI_KEY_MODE: "server" }).OPENAI_API_KEY).toBe(baseEnv.OPENAI_API_KEY);
   });
 
   it("defaults meeting transcription to English while allowing an explicit multilingual override", () => {

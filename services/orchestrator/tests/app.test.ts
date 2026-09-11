@@ -7,6 +7,7 @@ import type { MeetingTranscriptionRuntime, MeetingTranscriptionRuntimeStatus, St
 import type { RuntimeStatus, StartVoiceRuntimeInput, VoiceRuntimeAdapter } from "../src/runtime/voice-runtime.js";
 import type { MeetingPublisher } from "../src/meeting-publisher.js";
 import { MemoryStore } from "../src/store/memory-store.js";
+import { OpenAiKeyStore } from "../src/openai-key-store.js";
 
 const config = {
   NODE_ENV: "test",
@@ -25,6 +26,7 @@ const config = {
   AGORA_STT_LANGUAGES: "en-US",
   AGORA_STT_MAX_IDLE_SECONDS: 3600,
   OPENAI_API_KEY: "sk-test-key-long-enough-for-tests",
+  OPENAI_KEY_MODE: "server",
   OPENAI_GPT_LIVE_GREETING: undefined,
   OPENAI_GPT_LIVE_DELEGATION_MODEL: "gpt-5.5",
   GPT_LIVE_PROXY_PUBLIC_URL: undefined,
@@ -42,7 +44,12 @@ const config = {
 
 class FakeRuntime implements VoiceRuntimeAdapter {
   calls: string[] = [];
-  async start(input: StartVoiceRuntimeInput): Promise<RuntimeStatus> { this.calls.push(`start:${input.roomId}`); return { agentId: "agent-test", status: "standby" }; }
+  failStart = false;
+  async start(input: StartVoiceRuntimeInput): Promise<RuntimeStatus> {
+    this.calls.push(`start:${input.roomId}`);
+    if (this.failStart) throw new Error("Provider startup failed");
+    return { agentId: "agent-test", status: "standby" };
+  }
   async stop(roomId: string, agentId?: string) { this.calls.push(`stop:${roomId}:${agentId ?? "local"}`); }
   async getStatus(): Promise<RuntimeStatus> { return { agentId: "agent-test", status: "standby" }; }
   async setConversationMode(roomId: string, mode: "standby" | "focused") { this.calls.push(`mode:${roomId}:${mode}`); }
@@ -65,7 +72,7 @@ class FakeTranscriptionRuntime implements MeetingTranscriptionRuntime {
 
 class FakeNotesRuntime implements MeetingNotesRuntime {
   calls: string[] = [];
-  async generate(kind: "live" | "final", segments: MeetingTranscriptSegment[]): Promise<MeetingNotesDocument> {
+  async generate(_roomId: string, kind: "live" | "final", segments: MeetingTranscriptSegment[]): Promise<MeetingNotesDocument> {
     this.calls.push(`${kind}:${segments.length}`);
     const first = segments[0];
     const evidence = first ? [{ segmentId: first.id, speakerUid: first.speakerUid, speakerName: first.speakerName, startMs: first.startMs }] : [];
@@ -135,6 +142,40 @@ describe("orchestrator API", () => {
     expect(stopped.statusCode).toBe(202);
     const afterStop = await app.inject({ method: "GET", url: `/rooms/${roomId}`, headers: auth(host.json().capability) });
     expect(afterStop.json().participants.map((participant: { displayName: string }) => participant.displayName)).toEqual(["Host"]);
+    await app.close();
+  });
+
+  it("requires a host BYOK secret and clears it when Copilot stops", async () => {
+    const byokConfig = { ...config, OPENAI_KEY_MODE: "byok" as const, OPENAI_API_KEY: undefined };
+    const openAiKeys = new OpenAiKeyStore(byokConfig);
+    const { app } = await buildApp(byokConfig, { store: new MemoryStore(), runtime, openAiKeys });
+    const created = await app.inject({ method: "POST", url: "/rooms" });
+    const { roomId, hostSecret } = created.json();
+    const host = await app.inject({ method: "POST", url: `/rooms/${roomId}/participants`, payload: { displayName: "Host", hostSecret } });
+    const guest = await app.inject({ method: "POST", url: `/rooms/${roomId}/participants`, payload: { displayName: "Guest" } });
+    expect(host.json().openAiKeyMode).toBe("byok");
+
+    const missing = await app.inject({ method: "POST", url: `/rooms/${roomId}/agent/start`, headers: auth(host.json().capability), payload: {} });
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json()).toEqual({ error: "Enter your OpenAI API key to invite the AI teammate" });
+
+    const denied = await app.inject({ method: "POST", url: `/rooms/${roomId}/agent/start`, headers: auth(guest.json().capability), payload: { openAiApiKey: "sk-guest-secret-must-not-be-used" } });
+    expect(denied.statusCode).toBe(403);
+    expect(openAiKeys.has(roomId)).toBe(false);
+
+    const started = await app.inject({ method: "POST", url: `/rooms/${roomId}/agent/start`, headers: auth(host.json().capability), payload: { openAiApiKey: "sk-host-secret-long-enough" } });
+    expect(started.statusCode).toBe(202);
+    expect(openAiKeys.has(roomId)).toBe(true);
+    expect(JSON.stringify(started.json())).not.toContain("sk-host");
+
+    await app.inject({ method: "POST", url: `/rooms/${roomId}/agent/stop`, headers: auth(host.json().capability) });
+    expect(openAiKeys.has(roomId)).toBe(false);
+
+    runtime.failStart = true;
+    const failed = await app.inject({ method: "POST", url: `/rooms/${roomId}/agent/start`, headers: auth(host.json().capability), payload: { openAiApiKey: "sk-another-host-secret-long-enough" } });
+    expect(failed.statusCode).toBe(500);
+    expect(JSON.stringify(failed.json())).not.toContain("sk-another");
+    expect(openAiKeys.has(roomId)).toBe(false);
     await app.close();
   });
 

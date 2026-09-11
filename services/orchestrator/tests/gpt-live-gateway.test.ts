@@ -9,6 +9,7 @@ import { KanbanService } from "../src/kanban-service.js";
 import { createGptLiveProxyAccess, findFunctionCallPayload, findFunctionCallMetadata, GptLiveGateway, injectDelegation, joinSegmentedFunctionCall, unwrapResponseEvent, verifyGptLiveProxyAccess } from "../src/runtime/gpt-live-gateway.js";
 import { parseGptLiveBoardFunction } from "../src/runtime/gpt-live-tools.js";
 import { MemoryStore } from "../src/store/memory-store.js";
+import { OpenAiKeyStore } from "../src/openai-key-store.js";
 
 const config = loadConfig({
   NODE_ENV: "test",
@@ -80,7 +81,9 @@ describe("GPT Live gateway protocol", () => {
     const upstream = new FakeSocket();
     const downstream = new FakeSocket();
     let connection: { url: string; options: WebSocket.ClientOptions } | undefined;
-    const gateway = new GptLiveGateway(config, new KanbanService(store, new EventBus(store)), quietLogger(), (url, options) => {
+    const openAiKeys = new OpenAiKeyStore(config);
+    openAiKeys.set(room.id, "sk-room-user-key-long-enough");
+    const gateway = new GptLiveGateway(config, new KanbanService(store, new EventBus(store)), openAiKeys, quietLogger(), (url, options) => {
       connection = { url, options };
       return upstream as unknown as WebSocket;
     });
@@ -89,7 +92,7 @@ describe("GPT Live gateway protocol", () => {
     gateway.handle(downstream as unknown as WebSocket, room.id, Object.fromEntries(url.searchParams), `Bearer ${access.apiKey}`);
     expect(connection?.url).toBe("wss://api.openai.com/v1/live/sessions");
     expect(connection?.options.headers).toEqual({
-      Authorization: expect.stringMatching(/^Bearer sk-/)
+      Authorization: "Bearer sk-room-user-key-long-enough"
     });
 
     upstream.readyState = WebSocket.OPEN;
