@@ -165,10 +165,6 @@ cp .env.example .env.local
 
 ```bash
 NEXT_PUBLIC_ORCHESTRATOR_URL=http://localhost:8787
-
-# 可选的私有 Demo 访问保护。本地公开访问时两个值都留空。
-DEMO_ACCESS_PASSWORD=
-DEMO_ACCESS_TOKEN=
 ```
 
 ### 3. 配置 Orchestrator

@@ -20,41 +20,6 @@ const viewports = [
   { name: "mobile-landscape", width: 844, height: 390 }
 ];
 
-test.beforeEach(async ({ page }) => {
-  const response = await page.request.post("/api/access", { data: { password: "devx", next: "/" } });
-  expect(response.ok()).toBe(true);
-});
-
-test("private preview gate protects direct routes and uses a session-only cookie", async ({ context, page }) => {
-  await context.clearCookies();
-  await page.goto("/board?room=meet-playwright");
-
-  await expect(page).toHaveURL(/\/access\?next=%2Fboard%3Froom%3Dmeet-playwright$/);
-  await expect(page.getByRole("heading", { name: "Enter the private preview" })).toBeVisible();
-  await expect(page.getByText("This unreleased build is restricted to the project team.", { exact: false })).toBeVisible();
-
-  await page.getByLabel("Access password").fill("wrong");
-  await page.getByRole("button", { name: "Unlock preview" }).click();
-  await expect(page.locator("#access-error")).toHaveText("Incorrect access password");
-  await expect(page).toHaveURL(/\/access/);
-
-  await page.getByLabel("Access password").fill("devx");
-  await page.getByRole("button", { name: "Unlock preview" }).click();
-  await expect(page).toHaveURL(/\/board\?room=meet-playwright$/);
-  await expect(page.getByRole("heading", { name: "Join the board" })).toBeVisible();
-
-  const cookie = (await context.cookies()).find((item) => item.name === "agora-demo-access");
-  expect(cookie).toMatchObject({ httpOnly: true, sameSite: "Lax", expires: -1 });
-
-  await context.clearCookies();
-  const artifact = await context.request.get("/api/meeting-artifacts/meet-playwright/transcript.md");
-  expect(artifact.status()).toBe(401);
-  expect(await artifact.json()).toEqual({ error: "Private preview access is required" });
-
-  const staticAsset = await context.request.get("/agora-logo-mark.svg");
-  expect(staticAsset.status()).toBe(200);
-});
-
 test("Agora STT protobuf keeps final identity and timing fields", () => {
   const encoded = encodeAgoraSttMessage({ uid: 205309, time: 1_750_000_000_000, words: [{ text: "Ship it.", isFinal: true }], durationMs: 840, dataType: "transcribe", culture: "en-US", textTs: 1_750_000_001_200, sentenceId: 1_750_000_000_000 });
   expect(decodeAgoraSttMessage(encoded)).toEqual({ speakerUid: "205309", text: "Ship it.", isFinal: true, language: "en-US", sentenceId: "1750000000000", sourceTimeMs: 1_750_000_000_000, durationMs: 840, textTimestampMs: 1_750_000_001_200 });

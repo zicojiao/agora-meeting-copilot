@@ -165,10 +165,6 @@ cp .env.example .env.local
 
 ```bash
 NEXT_PUBLIC_ORCHESTRATOR_URL=http://localhost:8787
-
-# Optional private-demo gate. Leave both blank for public local access.
-DEMO_ACCESS_PASSWORD=
-DEMO_ACCESS_TOKEN=
 ```
 
 ### 3. Configure the orchestrator
